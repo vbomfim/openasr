@@ -129,6 +129,9 @@ public:
     [[nodiscard]] const std::string& session_id() const { return config_.session_id; }
     [[nodiscard]] const std::string& transcript() const { return transcript_; }
     [[nodiscard]] int64_t last_audio_ms() const { return last_audio_ms_; }
+    [[nodiscard]] float ring_buffer_fill_ratio() const {
+        return pipeline_.ring_buffer().fill_ratio();
+    }
 
 private:
     Config config_;

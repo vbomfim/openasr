@@ -97,6 +97,11 @@ public:
     /// Buffer capacity in samples.
     [[nodiscard]] size_t capacity() const { return capacity_; }
 
+    /// Fill ratio (0.0 = empty, 1.0 = full).
+    [[nodiscard]] float fill_ratio() const {
+        return static_cast<float>(available()) / static_cast<float>(capacity_);
+    }
+
     /// Reset buffer state without deallocating.
     void reset() {
         write_pos_ = 0;

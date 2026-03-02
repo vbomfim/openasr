@@ -290,6 +290,18 @@ private:
         session->ingest_audio(
             reinterpret_cast<const uint8_t*>(data.data()), data.size(), encoding);
 
+        // Check ring buffer fill level and send BACKPRESSURE if needed
+        float fill = session->ring_buffer_fill_ratio();
+        if (fill > 0.8f && !conn->backpressure_sent) {
+            send_to_session(conn->session_id,
+                protocol::make_backpressure(conn->session_id, "slow_down"));
+            conn->backpressure_sent = true;
+        } else if (fill < 0.5f && conn->backpressure_sent) {
+            send_to_session(conn->session_id,
+                protocol::make_backpressure(conn->session_id, "ok"));
+            conn->backpressure_sent = false;
+        }
+
         // Check if a window is ready and dispatch inference
         while (session->window_ready()) {
             auto window = session->extract_window();
