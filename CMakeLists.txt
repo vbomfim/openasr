@@ -60,6 +60,15 @@ FetchContent_Declare(
 set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(spdlog)
 
+# --- toml++ (header-only, FetchContent) ---
+FetchContent_Declare(
+    tomlplusplus
+    GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
+    GIT_TAG        v3.4.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(tomlplusplus)
+
 # --- libopus (system or FetchContent) ---
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
@@ -139,6 +148,7 @@ target_link_libraries(transcription_server PRIVATE
     uWebSockets
     nlohmann_json::nlohmann_json
     spdlog::spdlog
+    tomlplusplus::tomlplusplus
 )
 
 # Link opus

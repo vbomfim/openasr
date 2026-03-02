@@ -27,8 +27,10 @@ static spdlog::level::level_enum parse_log_level(const std::string& level) {
 }
 
 int main(int /*argc*/, char* /*argv*/[]) {
-    // Load config from environment
-    auto cfg = wss::config::ServerConfig::from_env();
+    // Load config from TOML file + environment variables
+    const char* config_path = std::getenv("WSS_CONFIG_PATH");
+    auto cfg = wss::config::ServerConfig::from_file_and_env(
+        config_path ? config_path : "config/server.toml");
 
     // Set up logging
     spdlog::set_level(parse_log_level(cfg.log_level));
