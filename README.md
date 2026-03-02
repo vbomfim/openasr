@@ -63,28 +63,72 @@ Unauthenticated connections receive `HTTP 401 Unauthorized` before the WebSocket
 
 ### Connection Flow
 
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server
+
+    C->>S: WebSocket upgrade (Authorization: Bearer <key>)
+    S-->>C: 101 Switching Protocols
+
+    C->>S: speech.config (JSON)
+    S-->>C: speech.config.ack (JSON)
+
+    Note over C,S: Client streams continuous binary audio frames
+
+    loop Every audio window (e.g. 5s)
+        C->>S: binary audio frames...
+        Note right of S: Window full → inference runs
+
+        S-->>C: speech.hypothesis (interim, per segment)
+        S-->>C: speech.phrase (finalized turn, status=Success)
+        S-->>C: speech.checkpoint (full transcript so far)
+    end
+
+    C->>S: speech.end (JSON)
+    S-->>C: speech.phrase (status=EndOfStream, full transcript)
+    S-->>C: speech.checkpoint (final)
 ```
-Client                              Server
-  │                                    │
-  │──── WebSocket upgrade ────────────►│  (auth checked here)
-  │◄─── 101 Switching Protocols ──────│
-  │                                    │
-  │──── speech.config (JSON) ─────────►│  session created
-  │◄─── speech.config.ack (JSON) ─────│
-  │                                    │
-  │──── binary audio frame ───────────►│
-  │──── binary audio frame ───────────►│  ┐
-  │──── binary audio frame ───────────►│  │ continuous streaming
-  │──── ...                           │  │
-  │◄─── speech.hypothesis (JSON) ─────│  │ interim results (per segment)
-  │◄─── speech.phrase (JSON) ─────────│  │ finalized turn
-  │◄─── speech.checkpoint (JSON) ─────│  ┘ full transcript for resume
-  │                                    │
-  │──── speech.end (JSON) ────────────►│  finalize
-  │◄─── speech.phrase (JSON) ─────────│  final (status=EndOfStream)
-  │◄─── speech.checkpoint (JSON) ─────│  final checkpoint
-  │                                    │
-  │──── close ────────────────────────►│
+
+#### Event ordering per window
+
+Each completed inference window produces three events in this order:
+
+| # | Event | Purpose | Content |
+|---|-------|---------|---------|
+| 1 | `speech.hypothesis` | Interim result per segment | Individual segment text, offset, duration |
+| 2 | `speech.phrase` | **Finalized turn** (stable, won't change) | Combined text for this window, `status: "Success"` |
+| 3 | `speech.checkpoint` | Full accumulated transcript | Everything transcribed so far (for session resume) |
+
+On `speech.end`, the server sends:
+
+| # | Event | Purpose | Content |
+|---|-------|---------|---------|
+| 1 | `speech.phrase` | End of stream marker | Full transcript, `status: "EndOfStream"` |
+| 2 | `speech.checkpoint` | Final session state | Complete transcript + resume data |
+
+#### Example: 12-second audio with 5-second windows
+
+```
+Time  Direction  Event
+────  ─────────  ──────────────────────────────────────────────
+0.0s  C→S        speech.config (window=5000ms, overlap=500ms)
+0.0s  S→C        speech.config.ack
+0.0s  C→S        binary audio frames (streaming continuously)
+...
+5.0s  ─────      Window 1 ready [0ms–5000ms] → inference starts
+6.2s  S→C        speech.hypothesis: "Hello, this is a test"
+6.2s  S→C        speech.phrase:     "Hello, this is a test." (status=Success)
+6.2s  S→C        speech.checkpoint: "Hello, this is a test."
+...
+9.5s  ─────      Window 2 ready [4500ms–9500ms] → inference starts
+11.0s S→C        speech.hypothesis: "of the streaming server."
+11.0s S→C        speech.phrase:     "of the streaming server." (status=Success)
+11.0s S→C        speech.checkpoint: "Hello, this is a test. of the streaming server."
+...
+12.0s C→S        speech.end
+12.0s S→C        speech.phrase:     "Hello, this is a test. of the ..." (status=EndOfStream)
+12.0s S→C        speech.checkpoint: (final state, usable for resume)
 ```
 
 ---
