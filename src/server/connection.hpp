@@ -29,6 +29,8 @@ inline std::string_view to_string(ConnectionState state) {
 struct ConnectionData {
     ConnectionState state = ConnectionState::CONNECTED;
     std::string session_id;
+    // Encoding from last AUDIO_CHUNK metadata (for pipeline selection)
+    std::string encoding = "pcm_s16le";
 };
 
 } // namespace wss::server

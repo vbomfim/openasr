@@ -58,6 +58,7 @@ public:
                 spdlog::info("Client disconnected: session={} code={} reason={}",
                     data->session_id, code, message);
                 if (!data->session_id.empty()) {
+                    ws->unsubscribe(data->session_id);
                     session_mgr_.destroy_session(data->session_id);
                 }
                 data->state = ConnectionState::CLOSED;
@@ -65,13 +66,23 @@ public:
         })
         .listen(port_, [this](auto* listen_socket) {
             if (listen_socket) {
+                listen_socket_ = listen_socket;
                 spdlog::info("Listening on port {}", port_);
             } else {
                 spdlog::error("Failed to listen on port {}", port_);
             }
         });
 
+        loop_ = uWS::Loop::get();
         app_.run();
+    }
+
+    /// Post a message to a session's client from any thread (thread-safe).
+    void send_to_session(const std::string& session_id, std::string message) {
+        if (!loop_) return;
+        loop_->defer([this, session_id, msg = std::move(message)]() {
+            app_.publish(session_id, msg, uWS::OpCode::TEXT);
+        });
     }
 
 private:
@@ -189,6 +200,9 @@ private:
         auto response = protocol::make_hello_ack(conn->session_id, ack);
         ws->send(response, uWS::OpCode::TEXT);
 
+        // Subscribe to session topic for async result delivery
+        ws->subscribe(conn->session_id);
+
         conn->state = ConnectionState::STREAMING;
     }
 
@@ -273,8 +287,26 @@ private:
         spdlog::info("Transcription complete: session={} window=[{}ms, {}ms] segments={}",
             session_id, window_start_ms, window_end_ms, result.segments.size());
 
-        // TODO: Send PARTIAL_TRANSCRIPT and CHECKPOINT back to client
-        // This requires posting to the uWS event loop (app_.getLoop()->defer())
+        // Build PARTIAL_TRANSCRIPT
+        protocol::PartialTranscriptPayload partial;
+        partial.window_start_ms = window_start_ms;
+        partial.window_end_ms = window_end_ms;
+        partial.is_stable = true;
+        for (const auto& seg : result.segments) {
+            partial.segments.push_back({
+                .start_ms = seg.start_ms,
+                .end_ms = seg.end_ms,
+                .text = seg.text,
+                .speaker = seg.speaker
+            });
+        }
+        send_to_session(session_id,
+            protocol::make_partial_transcript(session_id, partial));
+
+        // Build and send CHECKPOINT
+        auto checkpoint = session->make_checkpoint();
+        send_to_session(session_id,
+            protocol::make_checkpoint(session_id, checkpoint));
     }
 
     void handle_end(WebSocket* ws, ConnectionData* conn) {
@@ -288,8 +320,44 @@ private:
         conn->state = ConnectionState::ENDING;
         spdlog::info("Session ending: {}", conn->session_id);
 
-        // TODO: Finalize transcription, send FINAL_TRANSCRIPT + CHECKPOINT
+        auto* session = session_mgr_.get_session(conn->session_id);
+        if (session) {
+            // Process any remaining buffered audio windows
+            while (session->window_ready()) {
+                auto window = session->extract_window();
+                if (window.count == 0) break;
 
+                transcription::InferenceJob job;
+                job.session_id = conn->session_id;
+                job.audio.assign(window.samples, window.samples + window.count);
+                job.window_start_ms = window.start_ms;
+                job.window_end_ms = window.end_ms;
+                job.on_complete = [this](const std::string& sid,
+                                         transcription::TranscriptionResult result,
+                                         int64_t start_ms, int64_t end_ms) {
+                    on_inference_complete(sid, std::move(result), start_ms, end_ms);
+                };
+                inference_pool_.submit(std::move(job));
+            }
+
+            // Build FINAL_TRANSCRIPT from accumulated session transcript
+            protocol::FinalTranscriptPayload final_payload;
+            final_payload.segments.push_back({
+                .start_ms = 0,
+                .end_ms = session->last_audio_ms(),
+                .text = session->transcript(),
+                .speaker = ""
+            });
+            ws->send(protocol::make_final_transcript(conn->session_id, final_payload),
+                     uWS::OpCode::TEXT);
+
+            // Final checkpoint
+            auto checkpoint = session->make_checkpoint();
+            ws->send(protocol::make_checkpoint(conn->session_id, checkpoint),
+                     uWS::OpCode::TEXT);
+        }
+
+        ws->unsubscribe(conn->session_id);
         session_mgr_.destroy_session(conn->session_id);
         conn->state = ConnectionState::CLOSED;
     }
@@ -302,6 +370,8 @@ private:
     }
 
     uWS::App app_;
+    uWS::Loop* loop_ = nullptr;
+    us_listen_socket_t* listen_socket_ = nullptr;
     int port_;
     session::SessionManager& session_mgr_;
     transcription::InferencePool& inference_pool_;
