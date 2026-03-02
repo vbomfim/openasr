@@ -23,7 +23,7 @@ A lean, low‑overhead C++20 WebSocket server that ingests real‑time audio, bu
 ### 2.1 Components
 
 - **WebSocket Gateway**
-  - Based on an async networking library (e.g., Boost.Asio + Beast or uWebSockets)
+  - Based on uWebSockets (async, event‑driven, high‑performance)
   - Handles:
     - Connection lifecycle
     - JSON control messages
@@ -44,14 +44,14 @@ A lean, low‑overhead C++20 WebSocket server that ingests real‑time audio, bu
     - `window_duration_ms` (configurable)
     - `overlap_duration_ms` (configurable)
   - Emits windows to the backend via a work queue
-  - Uses contiguous buffers (e.g., `std::vector<int16_t>`) to minimize allocations
+  - Uses contiguous buffers (`AudioRingBuffer` with `float[]`) to minimize allocations
 
 - **Transcription Backend Interface**
-  - Abstracts the model runtime:
-    - WhisperX, Faster‑Whisper, or others
-  - Implementations may:
-    - Call an external microservice (HTTP/gRPC)
-    - Or embed Python via PyBind11 (optional, but heavier)
+  - Abstracts the model runtime via `ITranscriptionBackend`
+  - Single implementation: **WhisperCppBackend**
+    - Embeds whisper.cpp directly (pure C++, no Python)
+    - Model loaded once, `whisper_state` pooled for concurrent inference
+    - Supports CPU and GPU (CUDA/Vulkan on Linux)
 
 - **Result Aggregator**
   - Merges overlapping window results
@@ -144,47 +144,53 @@ class ITranscriptionBackend {
 public:
     virtual ~ITranscriptionBackend() = default;
 
-    struct Config {
+    struct BackendConfig {
         std::string language;
-        int sampleRate;
-        std::string modelId;
+        int sample_rate;
+        std::string model_id;
+        std::string model_path;
+        int beam_size;
+        int n_threads;
     };
 
     struct Segment {
-        int64_t startMs;
-        int64_t endMs;
+        int64_t start_ms;
+        int64_t end_ms;
         std::string text;
-        std::string speaker; // optional
+        std::string speaker; // empty if no diarization
     };
 
-    struct Result {
+    struct TranscriptionResult {
         std::vector<Segment> segments;
-        bool isFinal;
+        bool is_final;
     };
 
-    virtual void initialize(const Config& config) = 0;
+    virtual bool initialize(const BackendConfig& config) = 0;
 
-    virtual Result transcribeWindow(
-        const int16_t* samples,
-        size_t sampleCount,
-        int64_t windowStartMs
+    // Pointer + length API for zero‑copy
+    virtual TranscriptionResult transcribe(
+        const float* samples,
+        size_t sample_count,
+        int64_t window_start_ms
     ) = 0;
+
+    virtual bool is_ready() const = 0;
 };
 ```
 
 - **Design goals:**
-  - Pointer + length instead of `std::vector` to allow zero‑copy and custom allocators
-  - Backend implementations can be swapped at link time or via factory + env vars
+  - `const float*` + `size_t` instead of `std::vector` to allow zero‑copy from ring buffer
+  - RAII pooling of `whisper_state` ensures no resource leaks on exceptions
 
-### 5.2 Backend implementations
+### 5.2 Backend implementation
 
-- `WhisperXBackend`
-  - Calls an external Python/WhisperX service (HTTP/gRPC)
-  - Keeps C++ server lean and close to machine code
-- `FasterWhisperBackend`
-  - Calls a C++/CTranslate2 service or library
-- `MockBackend`
-  - For tests and benchmarks
+- `WhisperCppBackend`
+  - Embeds [whisper.cpp](https://github.com/ggerganov/whisper.cpp) (GGML‑based, pure C/C++)
+  - Model (`whisper_context`) loaded once at startup and shared across sessions
+  - `whisper_state` objects pooled (one per inference thread) with RAII checkout/checkin
+  - Supports all GGML model formats: tiny, base, small, medium, large‑v3
+  - GPU acceleration via CUDA or Vulkan (Linux), Metal (macOS) — compile‑time flags
+  - No external services, no Python, no network calls
 
 ---
 
@@ -203,13 +209,16 @@ public:
   - Worker threads: remaining cores
 - **RAM:**
   - Audio buffers:
-    - 16 kHz, 16‑bit mono ≈ 32 KB per second
-    - For 30 s window + overlap, per session buffer ≈ ~1–2 MB
-    - 20 sessions → ~20–40 MB for raw audio
-  - Transcripts + metadata: small compared to audio
-  - Recommended: **16 GB RAM** to accommodate backend + overhead
+    - 16 kHz, float32 mono ≈ 64 KB per second
+    - For 30 s ring buffer per session ≈ ~1.9 MB
+    - 20 sessions → ~38 MB for raw audio
+  - Transcripts: up to 1 MB per session (capped)
+  - Model: 200 MB (tiny) to 5 GB (large‑v3)
+  - Recommended: **8–16 GB RAM** depending on model
 - **GPU:**
-  - Offloaded to backend service (not in this process) to keep this server lean
+  - Optional: whisper.cpp supports CUDA, Vulkan (Linux) and Metal (macOS)
+  - Enable via CMake flags: `WHISPER_CUDA=ON` or `WHISPER_VULKAN=ON`
+  - GPU inference is 10–50× faster than CPU for large models
 
 ---
 
@@ -219,48 +228,75 @@ public:
 
 - **C++ standard:** C++20
 - **Networking / WebSocket:**
-  - Option A: Boost.Asio + Boost.Beast
-  - Option B: uWebSockets (very lean, high‑performance)
+  - uWebSockets (lean, high‑performance, header‑only C++ with uSockets C library)
+- **Inference:**
+  - whisper.cpp (git submodule, GGML‑based)
+- **Audio:**
+  - libopus (Opus decoding)
+  - libsamplerate (resampling to 16 kHz)
 - **JSON:**
-  - `nlohmann/json` (header‑only)
+  - `nlohmann/json` (header‑only, FetchContent)
 - **Logging:**
-  - `spdlog` (header‑only)
+  - `spdlog` (header‑only, FetchContent)
 - **Config:**
-  - `toml++` or `yaml-cpp` (optional)
+  - `toml++` (header‑only, FetchContent)
 
 ### 7.2 Build system
 
 - **CMake** (3.20+)
-- Targets:
-  - `transcription_server` (main binary)
-  - `backend_mock` (test)
-  - `backend_whisperx_client` (optional)
+- Single target: `transcription_server`
+- Security‑hardened compiler flags (scoped to project code only):
+  - `-Wall -Wextra -Wpedantic -Werror`
+  - `-fstack-protector-strong -D_FORTIFY_SOURCE=2`
+  - `-Wl,-z,relro -Wl,-z,now` (Linux)
 
 ### 7.3 Project layout
 
 ```text
 /whisperx-streaming-server
+  CMakeLists.txt
   /src
     main.cpp
-    websocket_server.cpp
-    session_manager.cpp
-    buffer_engine.cpp
-    result_aggregator.cpp
-    checkpoint_manager.cpp
-    backend_interface.hpp
-    backend_whisperx_client.cpp
-    backend_mock.cpp
+    /server
+      websocket_server.hpp      # WebSocket gateway, auth, routing
+      connection.hpp            # Per-connection state machine
+    /session
+      session_manager.hpp       # Session lifecycle
+      session.hpp               # Per-session state (owns pipeline + buffer)
+    /audio
+      audio_ring_buffer.hpp     # Fixed-capacity ring buffer (zero-copy)
+      buffer_engine.hpp         # Windowing logic
+      audio_pipeline.hpp        # Decode → normalize → resample → buffer
+      opus_decoder.hpp          # libopus RAII wrapper
+      resampler.hpp             # libsamplerate RAII wrapper
+      audio_utils.hpp           # PCM int16 → float32 conversion
+    /transcription
+      backend_interface.hpp     # ITranscriptionBackend ABC
+      whisper_backend.hpp       # whisper.cpp integration + state pool
+      inference_pool.hpp        # Dedicated inference thread pool
+    /aggregation
+      result_aggregator.hpp     # Overlap deduplication
+    /protocol
+      messages.hpp              # Message types + JSON serialization
+      validator.hpp             # Input validation
+    /config
+      config.hpp                # TOML + env var configuration
   /include
-    config.hpp
-    protocol.hpp
+    common.hpp                  # Type aliases, constants
+    object_pool.hpp             # Generic thread-safe object pool
+  /third_party
+    /whisper.cpp                # Git submodule
+    /uWebSockets                # Git submodule
   /docker
-    Dockerfile.base
-    Dockerfile.whisperx-client
+    Dockerfile                  # Multi-stage build (Ubuntu 24.04)
+  /k8s
+    /local                      # Local K8s testing manifests
   /config
-    server.toml
+    server.toml                 # Default configuration
+  /tools
+    test_client.py              # Python WebSocket test client
   /docs
     ARCHITECTURE.md
-    PROTOCOL.md
 ```
 
 ---
