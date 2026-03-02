@@ -15,7 +15,8 @@ public:
     BufferEngine(int32_t window_duration_ms, int32_t overlap_duration_ms)
         : window_samples_(ms_to_samples(window_duration_ms))
         , overlap_samples_(ms_to_samples(overlap_duration_ms))
-        , stride_samples_(window_samples_ - overlap_samples_) {
+        , stride_samples_(window_samples_ - overlap_samples_)
+        , next_window_end_(window_samples_) {
         // Pre-allocate the window extraction buffer once
         window_buffer_.resize(window_samples_);
     }
@@ -86,7 +87,7 @@ private:
     size_t overlap_samples_;
     size_t stride_samples_;
     size_t next_window_start_ = 0;
-    size_t next_window_end_;
+    size_t next_window_end_ = 0; // initialized in constructor body
     std::vector<SampleFloat> window_buffer_; // pre-allocated
 };
 

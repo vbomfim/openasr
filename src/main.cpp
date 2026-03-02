@@ -34,6 +34,7 @@ int main(int /*argc*/, char* /*argv*/[]) {
     // Set up logging
     spdlog::set_level(parse_log_level(cfg.log_level));
     spdlog::info("whisperx-streaming-server v0.1.0 starting...");
+    spdlog::debug("Debug logging enabled (log_level={})", cfg.log_level);
 
     // Validate config
     auto validation_error = cfg.validate();

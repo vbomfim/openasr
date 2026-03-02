@@ -162,6 +162,9 @@ private:
     void handle_message(WebSocket* ws, std::string_view message, uWS::OpCode opCode) {
         auto* conn = ws->getUserData();
 
+        spdlog::debug("Message received: opCode={} size={} session={}",
+            static_cast<int>(opCode), message.size(), conn->session_id);
+
         if (opCode == uWS::OpCode::BINARY) {
             handle_binary(ws, conn, message);
             return;
@@ -326,8 +329,14 @@ private:
         conn->pending_audio.valid = false;
 
         // Pass raw audio bytes directly to session pipeline
-        session->ingest_audio(
+        size_t written = session->ingest_audio(
             reinterpret_cast<const uint8_t*>(data.data()), data.size(), encoding);
+
+        spdlog::debug("Binary ingested: session={} bytes={} written={} ring_total={} window_sz={} window_ready={}",
+            conn->session_id, data.size(), written,
+            session->ring_buffer_total_written(),
+            session->window_samples(),
+            session->window_ready());
 
         // Check ring buffer fill level and send BACKPRESSURE if needed
         float fill = session->ring_buffer_fill_ratio();

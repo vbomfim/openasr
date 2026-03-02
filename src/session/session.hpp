@@ -132,6 +132,12 @@ public:
     [[nodiscard]] float ring_buffer_fill_ratio() const {
         return pipeline_.ring_buffer().fill_ratio();
     }
+    [[nodiscard]] size_t ring_buffer_total_written() const {
+        return pipeline_.ring_buffer().total_written();
+    }
+    [[nodiscard]] size_t window_samples() const {
+        return buffer_engine_.window_samples();
+    }
 
 private:
     Config config_;
