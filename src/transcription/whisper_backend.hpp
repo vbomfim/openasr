@@ -38,8 +38,10 @@ public:
 
         spdlog::info("Whisper model loaded: {}", config.model_path);
 
-        // Create state pool (one state per inference thread)
-        size_t pool_size = static_cast<size_t>(std::max(1, config.n_threads));
+        // Create state pool — sized for concurrent inference calls, NOT per-call threads.
+        // n_threads controls parallelism within a single whisper_full() call.
+        // Pool size controls how many calls can run concurrently.
+        size_t pool_size = std::min(static_cast<size_t>(std::max(1, config.n_threads)), size_t(4));
         state_pool_ = std::make_unique<ObjectPool<whisper_state*>>(
             pool_size,
             [this]() -> whisper_state* {
