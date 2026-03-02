@@ -12,6 +12,7 @@
 #include <random>
 #include <sstream>
 #include <iomanip>
+#include <atomic>
 
 namespace wss::server {
 
@@ -35,6 +36,19 @@ public:
         : port_(port)
         , session_mgr_(session_mgr)
         , inference_pool_(inference_pool) {}
+
+    /// Stop the server from any thread (closes the listen socket via event loop).
+    void stop() {
+        if (loop_) {
+            loop_->defer([this]() {
+                if (listen_socket_) {
+                    us_listen_socket_close(0, listen_socket_);
+                    listen_socket_ = nullptr;
+                    spdlog::info("Listen socket closed, event loop will exit");
+                }
+            });
+        }
+    }
 
     void run() {
         app_.ws<ConnectionData>("/transcribe", {
@@ -74,6 +88,24 @@ public:
         });
 
         loop_ = uWS::Loop::get();
+
+        // Periodically check for shutdown signal (every 1s)
+        auto* timer_loop = reinterpret_cast<struct us_loop_t*>(loop_);
+        struct us_timer_t* shutdown_timer = us_create_timer(timer_loop, 0, sizeof(WebSocketServer*));
+        *static_cast<WebSocketServer**>(us_timer_ext(shutdown_timer)) = this;
+        us_timer_set(shutdown_timer, [](struct us_timer_t* t) {
+            extern std::atomic<bool> g_running;
+            if (!g_running.load(std::memory_order_acquire)) {
+                auto* self = *static_cast<WebSocketServer**>(us_timer_ext(t));
+                if (self->listen_socket_) {
+                    us_listen_socket_close(0, self->listen_socket_);
+                    self->listen_socket_ = nullptr;
+                    spdlog::info("Shutdown: listen socket closed");
+                }
+                us_timer_close(t);
+            }
+        }, 1000, 1000);
+
         app_.run();
     }
 
