@@ -2,6 +2,7 @@
 
 #include "audio/audio_pipeline.hpp"
 #include "audio/buffer_engine.hpp"
+#include "aggregation/result_aggregator.hpp"
 #include "protocol/messages.hpp"
 #include "common.hpp"
 #include <memory>
@@ -74,13 +75,22 @@ public:
         return buffer_engine_.extract_window(pipeline_.ring_buffer());
     }
 
-    /// Append transcribed text to the growing transcript.
+    /// Append transcribed text to the growing transcript (legacy path).
     void append_transcript(std::string_view text) {
         std::lock_guard lock(mutex_);
         if (!transcript_.empty() && !text.empty()) {
             transcript_ += ' ';
         }
         transcript_ += text;
+        last_text_offset_ = static_cast<int64_t>(transcript_.size());
+    }
+
+    /// Add transcription segments via the ResultAggregator (handles overlap dedup).
+    void add_transcription_result(const std::vector<transcription::Segment>& segments,
+                                  int64_t window_start_ms, int64_t window_end_ms) {
+        std::lock_guard lock(mutex_);
+        aggregator_.add_window(segments, window_start_ms, window_end_ms);
+        transcript_ = aggregator_.full_transcript();
         last_text_offset_ = static_cast<int64_t>(transcript_.size());
     }
 
@@ -124,6 +134,7 @@ private:
     Config config_;
     audio::AudioPipeline pipeline_;
     audio::BufferEngine buffer_engine_;
+    aggregation::ResultAggregator aggregator_;
 
     std::string transcript_;
     int64_t last_audio_ms_ = 0;

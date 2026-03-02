@@ -322,10 +322,8 @@ private:
         auto* session = session_mgr_.get_session(session_id);
         if (!session) return;
 
-        // Append transcript
-        for (const auto& seg : result.segments) {
-            session->append_transcript(seg.text);
-        }
+        // Use ResultAggregator for overlap deduplication
+        session->add_transcription_result(result.segments, window_start_ms, window_end_ms);
         session->set_last_audio_ms(window_end_ms);
 
         spdlog::info("Transcription complete: session={} window=[{}ms, {}ms] segments={}",
