@@ -76,12 +76,16 @@ public:
     }
 
     void run() {
-        // Use placement or direct construction on the stack
         uWS::App app;
-        spdlog::info("App created, constructorFailed={}", app.constructorFailed());
 
-        app.get("/health", [](auto* res, auto* /*req*/) {
-            res->end("OK");
+        app.get("/health", [this](auto* res, auto* /*req*/) {
+            nlohmann::json health;
+            health["status"] = "ok";
+            health["active_sessions"] = session_mgr_.active_count();
+            health["max_sessions"] = session_mgr_.max_sessions();
+            health["inference_pending"] = inference_pool_.pending();
+            res->writeHeader("Content-Type", "application/json");
+            res->end(health.dump());
         });
         
         app.ws<ConnectionData>("/transcribe", {

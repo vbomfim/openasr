@@ -122,7 +122,7 @@ target_compile_options(uSockets PRIVATE -w)
 
 # uWebSockets header-only interface
 add_library(uWebSockets INTERFACE)
-target_include_directories(uWebSockets INTERFACE
+target_include_directories(uWebSockets SYSTEM INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/uWebSockets/src
 )
 target_link_libraries(uWebSockets INTERFACE uSockets z)
@@ -136,6 +136,24 @@ target_include_directories(transcription_server PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
+
+# Mark third-party headers as SYSTEM to suppress warnings from -Werror
+get_target_property(_spdlog_inc spdlog::spdlog INTERFACE_INCLUDE_DIRECTORIES)
+if(_spdlog_inc)
+    target_include_directories(transcription_server SYSTEM PRIVATE ${_spdlog_inc})
+endif()
+get_target_property(_json_inc nlohmann_json::nlohmann_json INTERFACE_INCLUDE_DIRECTORIES)
+if(_json_inc)
+    target_include_directories(transcription_server SYSTEM PRIVATE ${_json_inc})
+endif()
+get_target_property(_toml_inc tomlplusplus::tomlplusplus INTERFACE_INCLUDE_DIRECTORIES)
+if(_toml_inc)
+    target_include_directories(transcription_server SYSTEM PRIVATE ${_toml_inc})
+endif()
+get_target_property(_whisper_inc whisper INTERFACE_INCLUDE_DIRECTORIES)
+if(_whisper_inc)
+    target_include_directories(transcription_server SYSTEM PRIVATE ${_whisper_inc})
+endif()
 
 # Apply hardened flags only to our code
 target_compile_options(transcription_server PRIVATE ${WSS_COMPILE_OPTIONS})

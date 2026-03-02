@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: whisperx
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: whisperx-server-config
+  namespace: whisperx
+data:
+  WSS_PORT: "9090"
+  WSS_MAX_SESSIONS: "5"
+  WSS_WINDOW_DURATION_MS: "20000"
+  WSS_OVERLAP_DURATION_MS: "2000"
+  WSS_INFERENCE_THREADS: "2"
+  WSS_LOG_LEVEL: "info"
+  WSS_LANGUAGE: "en"
+  WSS_BEAM_SIZE: "5"
+  WSS_CONFIG_PATH: "/dev/null"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whisperx-server
+  namespace: whisperx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: whisperx-server
+  template:
+    metadata:
+      labels:
+        app: whisperx-server
+    spec:
+      initContainers:
+        - name: model-downloader
+          image: curlimages/curl:latest
+          command:
+            - sh
+            - -c
+            - |
+              if [ ! -f /models/ggml-tiny.en.bin ]; then
+                echo "Downloading whisper tiny.en model..."
+                curl -L -o /models/ggml-tiny.en.bin \
+                  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"
+                echo "Download complete: $(ls -lh /models/ggml-tiny.en.bin)"
+              else
+                echo "Model already exists"
+              fi
+          volumeMounts:
+            - name: model-vol
+              mountPath: /models
+      containers:
+        - name: whisperx-server
+          image: whisperx-server:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 9090
+          envFrom:
+            - configMapRef:
+                name: whisperx-server-config
+          env:
+            - name: WHISPER_MODEL_PATH
+              value: /models/ggml-tiny.en.bin
+          volumeMounts:
+            - name: model-vol
+              mountPath: /models
+              readOnly: true
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: model-vol
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: whisperx-server
+  namespace: whisperx
+spec:
+  type: NodePort
+  selector:
+    app: whisperx-server
+  ports:
+    - port: 9090
+      targetPort: 9090
+      nodePort: 30090
