@@ -15,7 +15,7 @@ class AudioRingBuffer {
 public:
     /// Construct with capacity in samples. Allocates once.
     explicit AudioRingBuffer(size_t capacity)
-        : buffer_(capacity, 0.0f), capacity_(capacity) {}
+        : buffer_(std::max(capacity, size_t(1)), 0.0f), capacity_(std::max(capacity, size_t(1))) {}
 
     AudioRingBuffer(const AudioRingBuffer&) = delete;
     AudioRingBuffer& operator=(const AudioRingBuffer&) = delete;
@@ -99,7 +99,7 @@ public:
 
     /// Fill ratio (0.0 = empty, 1.0 = full).
     [[nodiscard]] float fill_ratio() const {
-        return static_cast<float>(available()) / static_cast<float>(capacity_);
+        return capacity_ > 0 ? static_cast<float>(available()) / static_cast<float>(capacity_) : 0.0f;
     }
 
     /// Reset buffer state without deallocating.

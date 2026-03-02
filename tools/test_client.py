@@ -33,7 +33,7 @@ def patch_dns(target_host: str, dest_ip: str):
     socket.getaddrinfo = _patched
 
 
-async def run_test(server_url: str, wav_path: str):
+async def run_test(server_url: str, wav_path: str, api_key: str = ""):
     with wave.open(wav_path, "r") as wf:
         assert wf.getnchannels() == 1, "Must be mono"
         assert wf.getsampwidth() == 2, "Must be 16-bit"
@@ -44,7 +44,11 @@ async def run_test(server_url: str, wav_path: str):
     print(f"Audio: {wav_path} | {sample_rate}Hz mono 16-bit | {duration_s:.1f}s | {len(pcm_data)} bytes")
     t0 = time.monotonic()
 
-    async with websockets.connect(server_url) as ws:
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    async with websockets.connect(server_url, additional_headers=headers) as ws:
         # --- speech.config ---
         config = {
             "type": "speech.config",
@@ -150,12 +154,14 @@ def main():
                         help="Path to mono 16-bit WAV file (default: /tmp/test_speech.wav)")
     parser.add_argument("--ingress", metavar="IP", default=None,
                         help="Resolve whisperx.local to this IP (e.g. 127.0.0.1)")
+    parser.add_argument("--api-key", default=os.environ.get("WSS_API_KEY", ""),
+                        help="API key for authentication (default: $WSS_API_KEY)")
     args = parser.parse_args()
 
     if args.ingress:
         patch_dns("whisperx.local", args.ingress)
 
-    asyncio.run(run_test(args.server_url, args.wav_file))
+    asyncio.run(run_test(args.server_url, args.wav_file, args.api_key))
 
 
 if __name__ == "__main__":

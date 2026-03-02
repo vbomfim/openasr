@@ -11,6 +11,15 @@
 
 namespace wss::config {
 
+/// Safe integer parsing with fallback (replaces std::atoi)
+static int safe_atoi(const char* s, int default_val = 0) {
+    try {
+        return std::stoi(s);
+    } catch (...) {
+        return default_val;
+    }
+}
+
 /// Server configuration loaded from TOML file and/or environment variables.
 /// Environment variables take precedence (container-friendly).
 struct ServerConfig {
@@ -36,6 +45,9 @@ struct ServerConfig {
     // Logging
     std::string log_level = "info";
 
+    // Authentication
+    std::string api_key; // if empty, auth is disabled (dev mode)
+
     /// Load configuration from environment variables.
     static ServerConfig from_env() {
         ServerConfig cfg;
@@ -52,6 +64,7 @@ struct ServerConfig {
         if (auto* v = std::getenv("WSS_IO_THREADS"))         cfg.io_threads = std::atoi(v);
         if (auto* v = std::getenv("WSS_INFERENCE_THREADS"))  cfg.inference_threads = std::atoi(v);
         if (auto* v = std::getenv("WSS_LOG_LEVEL"))          cfg.log_level = v;
+        if (auto* v = std::getenv("WSS_API_KEY"))            cfg.api_key = v;
 
         return cfg;
     }
@@ -110,17 +123,18 @@ struct ServerConfig {
 
         // Environment variables override TOML values
         if (auto* v = std::getenv("WSS_HOST"))              cfg.host = v;
-        if (auto* v = std::getenv("WSS_PORT"))               cfg.port = std::atoi(v);
-        if (auto* v = std::getenv("WSS_MAX_SESSIONS"))       cfg.max_sessions = static_cast<size_t>(std::atoi(v));
-        if (auto* v = std::getenv("WSS_WINDOW_DURATION_MS")) cfg.window_duration_ms = static_cast<int32_t>(std::atoi(v));
-        if (auto* v = std::getenv("WSS_OVERLAP_DURATION_MS"))cfg.overlap_duration_ms = static_cast<int32_t>(std::atoi(v));
-        if (auto* v = std::getenv("WSS_MAX_BUFFERED_MS"))    cfg.max_buffered_duration_ms = static_cast<int32_t>(std::atoi(v));
+        if (auto* v = std::getenv("WSS_PORT"))               cfg.port = safe_atoi(v, cfg.port);
+        if (auto* v = std::getenv("WSS_MAX_SESSIONS"))       cfg.max_sessions = static_cast<size_t>(safe_atoi(v, static_cast<int>(cfg.max_sessions)));
+        if (auto* v = std::getenv("WSS_WINDOW_DURATION_MS")) cfg.window_duration_ms = static_cast<int32_t>(safe_atoi(v, cfg.window_duration_ms));
+        if (auto* v = std::getenv("WSS_OVERLAP_DURATION_MS"))cfg.overlap_duration_ms = static_cast<int32_t>(safe_atoi(v, cfg.overlap_duration_ms));
+        if (auto* v = std::getenv("WSS_MAX_BUFFERED_MS"))    cfg.max_buffered_duration_ms = static_cast<int32_t>(safe_atoi(v, cfg.max_buffered_duration_ms));
         if (auto* v = std::getenv("WHISPER_MODEL_PATH"))     cfg.model_path = v;
         if (auto* v = std::getenv("WSS_LANGUAGE"))           cfg.language = v;
-        if (auto* v = std::getenv("WSS_BEAM_SIZE"))          cfg.beam_size = std::atoi(v);
-        if (auto* v = std::getenv("WSS_IO_THREADS"))         cfg.io_threads = std::atoi(v);
-        if (auto* v = std::getenv("WSS_INFERENCE_THREADS"))  cfg.inference_threads = std::atoi(v);
+        if (auto* v = std::getenv("WSS_BEAM_SIZE"))          cfg.beam_size = safe_atoi(v, cfg.beam_size);
+        if (auto* v = std::getenv("WSS_IO_THREADS"))         cfg.io_threads = safe_atoi(v, cfg.io_threads);
+        if (auto* v = std::getenv("WSS_INFERENCE_THREADS"))  cfg.inference_threads = safe_atoi(v, cfg.inference_threads);
         if (auto* v = std::getenv("WSS_LOG_LEVEL"))          cfg.log_level = v;
+        if (auto* v = std::getenv("WSS_API_KEY"))            cfg.api_key = v;
 
         return cfg;
     }

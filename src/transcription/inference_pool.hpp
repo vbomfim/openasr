@@ -31,8 +31,8 @@ struct InferenceJob {
 /// Each thread has its own pre-allocated scratch buffer.
 class InferencePool {
 public:
-    InferencePool(ITranscriptionBackend& backend, size_t num_threads)
-        : backend_(backend), running_(true) {
+    InferencePool(ITranscriptionBackend& backend, size_t num_threads, size_t max_queue_size = 100)
+        : backend_(backend), running_(true), max_queue_size_(max_queue_size) {
         workers_.reserve(num_threads);
         for (size_t i = 0; i < num_threads; ++i) {
             workers_.emplace_back([this] { worker_loop(); });
@@ -50,6 +50,11 @@ public:
     void submit(InferenceJob job) {
         {
             std::lock_guard lock(mutex_);
+            if (queue_.size() >= max_queue_size_) {
+                spdlog::warn("Inference queue full ({} jobs), dropping job for session={}",
+                    queue_.size(), job.session_id);
+                return;
+            }
             queue_.push(std::move(job));
         }
         cv_.notify_one();
@@ -108,6 +113,7 @@ private:
     mutable std::mutex mutex_;
     std::condition_variable cv_;
     std::atomic<bool> running_;
+    size_t max_queue_size_;
 };
 
 } // namespace wss::transcription

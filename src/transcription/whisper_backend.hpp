@@ -4,6 +4,7 @@
 #include "object_pool.hpp"
 #include <whisper.h>
 #include <spdlog/spdlog.h>
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -73,6 +74,12 @@ public:
             return {};
         }
         auto* state = *state_opt;
+        // RAII guard to return state to pool on any exit path
+        struct StateGuard {
+            std::function<void()> cleanup;
+            ~StateGuard() { if (cleanup) cleanup(); }
+        } guard{[this, state]() { state_pool_->checkin(state); }};
+
         spdlog::info("Whisper state checked out, configuring params...");
 
         // Configure inference parameters
@@ -100,7 +107,6 @@ public:
 
         if (ret != 0) {
             spdlog::error("whisper_full_with_state failed: ret={}", ret);
-            state_pool_->checkin(state);
             return result;
         }
 
@@ -121,9 +127,6 @@ public:
                 .speaker = ""
             });
         }
-
-        // Return state to pool
-        state_pool_->checkin(state);
 
         return result;
     }

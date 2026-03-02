@@ -18,6 +18,7 @@ data:
   WSS_LANGUAGE: "en"
   WSS_BEAM_SIZE: "5"
   WSS_CONFIG_PATH: "/dev/null"
+  WSS_API_KEY: "dev-test-key-change-in-production"
 ---
 apiVersion: apps/v1
 kind: Deployment

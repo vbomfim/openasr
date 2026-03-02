@@ -17,8 +17,11 @@ public:
     Resampler(int32_t src_rate, int32_t dst_rate, int channels = 1)
         : src_rate_(src_rate)
         , dst_rate_(dst_rate)
-        , ratio_(static_cast<double>(dst_rate) / static_cast<double>(src_rate))
+        , ratio_(src_rate > 0 ? static_cast<double>(dst_rate) / static_cast<double>(src_rate) : 1.0)
         , channels_(channels) {
+        if (src_rate <= 0 || dst_rate <= 0) {
+            throw std::invalid_argument("Sample rates must be positive");
+        }
         int error = 0;
         state_ = src_new(SRC_SINC_MEDIUM_QUALITY, channels, &error);
         if (!state_ || error != 0) {

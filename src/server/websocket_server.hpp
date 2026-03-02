@@ -13,6 +13,9 @@
 #include <sstream>
 #include <iomanip>
 #include <atomic>
+#include <fstream>
+#include <array>
+#include <cstring>
 
 // Forward declaration — main.cpp should define a non-static g_running
 // and remove the static qualifier so this extern resolves at link time.
@@ -20,15 +23,24 @@
 
 namespace wss::server {
 
-/// Generate a cryptographically-influenced session ID
+/// Generate a cryptographically secure session ID using /dev/urandom
 inline std::string generate_session_id() {
-    std::random_device rd;
-    std::mt19937_64 gen(rd());
-    std::uniform_int_distribution<uint64_t> dist;
+    std::array<uint8_t, 16> bytes{};
+    std::ifstream urandom("/dev/urandom", std::ios::binary);
+    if (urandom.good()) {
+        urandom.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
+    } else {
+        // Fallback to random_device
+        std::random_device rd;
+        std::mt19937_64 gen(rd());
+        std::uniform_int_distribution<uint64_t> dist;
+        uint64_t a = dist(gen), b = dist(gen);
+        std::memcpy(bytes.data(), &a, 8);
+        std::memcpy(bytes.data() + 8, &b, 8);
+    }
     std::ostringstream oss;
-    oss << std::hex << std::setfill('0')
-        << std::setw(16) << dist(gen) << "-"
-        << std::setw(16) << dist(gen);
+    oss << std::hex << std::setfill('0');
+    for (auto b : bytes) oss << std::setw(2) << static_cast<int>(b);
     return oss.str();
 }
 
@@ -50,10 +62,12 @@ public:
     explicit WebSocketServer(int port,
                              session::SessionManager& session_mgr,
                              transcription::InferencePool& inference_pool,
+                             const std::string& api_key = "",
                              TlsConfig tls = TlsConfig())
         : port_(port)
         , session_mgr_(session_mgr)
         , inference_pool_(inference_pool)
+        , api_key_(api_key)
         , tls_config_(std::move(tls)) {
         if (tls_config_.enabled) {
             spdlog::warn("TLS enabled in config but native TLS requires uWS::SSLApp. "
@@ -94,8 +108,45 @@ public:
             .idleTimeout = 120,
             .maxBackpressure = 1 * 1024 * 1024,
 
-            .open = [](auto* ws) {
-                spdlog::info("Client connected");
+            .upgrade = [this](auto* res, auto* req, auto* context) {
+                bool authenticated = api_key_.empty(); // dev mode if no key configured
+
+                if (!authenticated) {
+                    std::string_view auth = req->getHeader("authorization");
+                    if (!auth.empty() && auth.substr(0, 7) == "Bearer " && auth.substr(7) == api_key_) {
+                        authenticated = true;
+                    }
+                }
+                if (!authenticated) {
+                    std::string_view query = req->getQuery("api_key");
+                    if (!query.empty() && query == api_key_) {
+                        authenticated = true;
+                    }
+                }
+
+                if (!authenticated) {
+                    res->writeStatus("401 Unauthorized");
+                    res->end("Invalid or missing API key");
+                    return;
+                }
+
+                res->template upgrade<ConnectionData>(
+                    {},
+                    req->getHeader("sec-websocket-key"),
+                    req->getHeader("sec-websocket-protocol"),
+                    req->getHeader("sec-websocket-extensions"),
+                    context
+                );
+            },
+
+            .open = [this](auto* ws) {
+                if (active_connections_.fetch_add(1) >= kMaxConnections) {
+                    active_connections_.fetch_sub(1);
+                    ws->close();
+                    spdlog::warn("Connection rejected: max connections ({}) reached", kMaxConnections);
+                    return;
+                }
+                spdlog::info("Client connected ({} active)", active_connections_.load());
                 auto* data = ws->getUserData();
                 data->state = ConnectionState::CONNECTED;
             },
@@ -105,9 +156,10 @@ public:
             },
 
             .close = [this](auto* ws, int code, std::string_view message) {
+                active_connections_.fetch_sub(1);
                 auto* data = ws->getUserData();
-                spdlog::info("Client disconnected: session={} code={} reason={}",
-                    data->session_id, code, message);
+                spdlog::info("Client disconnected: session={} code={} reason={} ({} active)",
+                    data->session_id, code, message, active_connections_.load());
                 if (!data->session_id.empty()) {
                     ws->unsubscribe(data->session_id);
                     session_mgr_.destroy_session(data->session_id);
@@ -223,7 +275,14 @@ private:
             return;
         }
 
-        auto config = payload.get<protocol::SpeechConfigPayload>();
+        protocol::SpeechConfigPayload config;
+        try {
+            config = payload.get<protocol::SpeechConfigPayload>();
+        } catch (const nlohmann::json::exception& e) {
+            send_error(ws, conn->session_id, "INVALID_MESSAGE",
+                std::string("Invalid speech.config payload: ") + e.what());
+            return;
+        }
 
         // Assign or resume session
         if (config.resume_checkpoint) {
@@ -294,8 +353,15 @@ private:
         }
 
         // Pass raw audio bytes directly to session pipeline
-        size_t written = session->ingest_audio(
-            reinterpret_cast<const uint8_t*>(data.data()), data.size());
+        size_t written;
+        try {
+            written = session->ingest_audio(
+                reinterpret_cast<const uint8_t*>(data.data()), data.size());
+        } catch (const std::exception& e) {
+            spdlog::error("Audio ingestion error: session={} error={}", conn->session_id, e.what());
+            send_error(ws, conn->session_id, "AUDIO_ERROR", e.what());
+            return;
+        }
 
         spdlog::debug("Binary ingested: session={} bytes={} written={} ring_total={} window_sz={} window_ready={}",
             conn->session_id, data.size(), written,
@@ -436,7 +502,10 @@ private:
     int port_;
     session::SessionManager& session_mgr_;
     transcription::InferencePool& inference_pool_;
+    std::string api_key_;
     TlsConfig tls_config_;
+    std::atomic<size_t> active_connections_{0};
+    static constexpr size_t kMaxConnections = 100;
 };
 
 } // namespace wss::server

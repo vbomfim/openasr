@@ -70,6 +70,16 @@ inline ValidationResult validate_speech_config(const nlohmann::json& payload) {
         return ValidationResult::fail("INVALID_MESSAGE",
             "speech.config: overlap_duration_ms must be >= 0 and < window_duration_ms");
     }
+    // Validate string field lengths
+    if (payload["language"].get<std::string>().length() > 16) {
+        return ValidationResult::fail("INVALID_MESSAGE", "language too long (max 16 chars)");
+    }
+    if (payload.contains("model_id") && payload["model_id"].get<std::string>().length() > 128) {
+        return ValidationResult::fail("INVALID_MESSAGE", "model_id too long (max 128 chars)");
+    }
+    if (payload["encoding"].get<std::string>().length() > 32) {
+        return ValidationResult::fail("INVALID_MESSAGE", "encoding too long (max 32 chars)");
+    }
     if (payload.contains("resume_checkpoint") && !payload["resume_checkpoint"].is_null()) {
         if (!payload["resume_checkpoint"].is_object()) {
             return ValidationResult::fail("INVALID_MESSAGE",
