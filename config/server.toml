@@ -1,0 +1,26 @@
+# Server configuration
+[server]
+host = "0.0.0.0"
+port = 9090
+max_sessions = 20
+
+# Audio buffering
+[buffer]
+window_duration_ms = 20000
+overlap_duration_ms = 2000
+max_buffered_duration_ms = 60000
+
+# Whisper model
+[model]
+path = "/models/ggml-large-v3.bin"
+language = "en"
+beam_size = 5
+
+# Threading
+[threads]
+io_threads = 4
+inference_threads = 4
+
+# Logging
+[logging]
+level = "info"
