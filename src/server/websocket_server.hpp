@@ -414,7 +414,7 @@ private:
         spdlog::info("Transcription complete: session={} window=[{}ms, {}ms] segments={}",
             session_id, window_start_ms, window_end_ms, result.segments.size());
 
-        // Build speech.hypothesis for each segment
+        // Send speech.hypothesis for each segment (interim/partial)
         for (const auto& seg : result.segments) {
             protocol::HypothesisPayload hyp;
             hyp.offset = seg.start_ms;
@@ -424,7 +424,22 @@ private:
                 protocol::make_speech_hypothesis(session_id, hyp));
         }
 
-        // Build and send speech.checkpoint
+        // Send speech.phrase for the completed window (finalized turn)
+        std::string window_text;
+        for (const auto& seg : result.segments) {
+            if (!window_text.empty() && !seg.text.empty()) window_text += ' ';
+            window_text += seg.text;
+        }
+        protocol::PhrasePayload phrase;
+        phrase.offset = window_start_ms;
+        phrase.duration = window_end_ms - window_start_ms;
+        phrase.text = window_text;
+        phrase.confidence = 1.0f;
+        phrase.status = "Success";
+        send_to_session(session_id,
+            protocol::make_speech_phrase(session_id, phrase));
+
+        // Send speech.checkpoint with full accumulated transcript
         auto checkpoint = session->make_checkpoint();
         send_to_session(session_id,
             protocol::make_speech_checkpoint(session_id, checkpoint));
@@ -467,7 +482,7 @@ private:
             phrase.duration = session->last_audio_ms();
             phrase.text = session->transcript();
             phrase.confidence = 1.0f;
-            phrase.status = "Success";
+            phrase.status = "EndOfStream";
             ws->send(protocol::make_speech_phrase(conn->session_id, phrase),
                      uWS::OpCode::TEXT);
 

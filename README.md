@@ -76,11 +76,12 @@ Client                              Server
   │──── binary audio frame ───────────►│  ┐
   │──── binary audio frame ───────────►│  │ continuous streaming
   │──── ...                           │  │
-  │◄─── speech.hypothesis (JSON) ─────│  │ partial results
-  │◄─── speech.checkpoint (JSON) ─────│  ┘ session state
+  │◄─── speech.hypothesis (JSON) ─────│  │ interim results (per segment)
+  │◄─── speech.phrase (JSON) ─────────│  │ finalized turn
+  │◄─── speech.checkpoint (JSON) ─────│  ┘ full transcript for resume
   │                                    │
   │──── speech.end (JSON) ────────────►│  finalize
-  │◄─── speech.phrase (JSON) ─────────│  final transcript
+  │◄─── speech.phrase (JSON) ─────────│  final (status=EndOfStream)
   │◄─── speech.checkpoint (JSON) ─────│  final checkpoint
   │                                    │
   │──── close ────────────────────────►│
@@ -194,9 +195,9 @@ Emitted after each inference window completes. May change as more context arrive
 | `duration` | int | Duration of the transcribed segment in milliseconds |
 | `text` | string | Transcribed text |
 
-#### `speech.phrase` — Final transcription
+#### `speech.phrase` — Finalized turn/segment
 
-Sent after `speech.end`, containing the full session transcript.
+Emitted after each inference window completes. This is the **confirmed, stable** transcription for that segment — it will not change. Use `speech.checkpoint` for the full accumulated transcript.
 
 ```json
 {
@@ -204,13 +205,15 @@ Sent after `speech.end`, containing the full session transcript.
   "session_id": "d785d7fad5ecd9ee3eed4ddeb2953e59",
   "payload": {
     "offset": 0,
-    "duration": 6842,
-    "text": "Hello, this is a test of the Whisper streaming transcription server. The quick brown fox jumps over the lazy dog.",
+    "duration": 5000,
+    "text": "Hello, this is a test of the Whisper streaming transcription server.",
     "confidence": 1.0,
     "status": "Success"
   }
 }
 ```
+
+On `speech.end`, a final `speech.phrase` with `"status": "EndOfStream"` is sent containing the full accumulated transcript.
 
 #### `speech.checkpoint` — Session state
 
