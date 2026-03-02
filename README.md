@@ -8,7 +8,7 @@ A production-grade, memory-efficient C++20 WebSocket server for real-time audio 
 - **WebSocket streaming** — Azure-style protocol with continuous binary audio
 - **PCM and Opus audio** at any sample rate (8–96 kHz, resampled internally to 16 kHz)
 - **Stateless checkpointing** — resume sessions on any server node
-- **API key authentication** — Bearer token or query parameter
+- **API key authentication** — Bearer token in header
 - **Kubernetes-ready** — multi-stage Docker image, health checks, Helm-friendly
 
 ---
@@ -55,8 +55,9 @@ Every WebSocket connection must be authenticated (unless `WSS_API_KEY` is unset 
 
 | Method | Example |
 |--------|---------|
-| **Bearer token** (recommended) | `Authorization: Bearer your-api-key` header on upgrade |
-| **Query parameter** | `ws://host:9090/transcribe?api_key=your-api-key` |
+| **Bearer token** | `Authorization: Bearer your-api-key` header on WebSocket upgrade |
+
+Query string authentication is **not supported** — API keys in URLs are logged by proxies and intermediaries.
 
 Unauthenticated connections receive `HTTP 401 Unauthorized` before the WebSocket handshake completes.
 

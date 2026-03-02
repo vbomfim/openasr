@@ -113,20 +113,14 @@ public:
 
                 if (!authenticated) {
                     std::string_view auth = req->getHeader("authorization");
-                    if (!auth.empty() && auth.substr(0, 7) == "Bearer " && auth.substr(7) == api_key_) {
-                        authenticated = true;
-                    }
-                }
-                if (!authenticated) {
-                    std::string_view query = req->getQuery("api_key");
-                    if (!query.empty() && query == api_key_) {
+                    if (auth.size() > 7 && auth.substr(0, 7) == "Bearer " && auth.substr(7) == api_key_) {
                         authenticated = true;
                     }
                 }
 
                 if (!authenticated) {
                     res->writeStatus("401 Unauthorized");
-                    res->end("Invalid or missing API key");
+                    res->end("Invalid or missing API key. Use Authorization: Bearer <key> header.");
                     return;
                 }
 
