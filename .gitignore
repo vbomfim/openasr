@@ -1,0 +1,38 @@
+# Build
+build/
+cmake-build-*/
+out/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Compiled
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+
+# Models (large binary files — never commit)
+models/
+*.bin
+*.ggml
+
+# Secrets / credentials — never commit
+*.pem
+*.key
+*.crt
+*.env
+.env*
+secrets/
+
+# Third-party build artifacts
+third_party/whisper.cpp/build/
+
+# Logs
+*.log
