@@ -2,6 +2,8 @@
 
 #include "server/connection.hpp"
 #include "session/session_manager.hpp"
+#include "transcription/inference_pool.hpp"
+#include "aggregation/result_aggregator.hpp"
 #include "protocol/messages.hpp"
 #include "protocol/validator.hpp"
 #include <App.h>
@@ -27,8 +29,12 @@ inline std::string generate_session_id() {
 
 class WebSocketServer {
 public:
-    explicit WebSocketServer(int port, session::SessionManager& session_mgr)
-        : port_(port), session_mgr_(session_mgr) {}
+    explicit WebSocketServer(int port,
+                             session::SessionManager& session_mgr,
+                             transcription::InferencePool& inference_pool)
+        : port_(port)
+        , session_mgr_(session_mgr)
+        , inference_pool_(inference_pool) {}
 
     void run() {
         app_.ws<ConnectionData>("/transcribe", {
@@ -222,14 +228,53 @@ private:
             return;
         }
 
-        // Pass raw audio bytes directly to session pipeline — zero-copy from WebSocket
+        // Pass raw audio bytes directly to session pipeline
         session->ingest_audio(
             reinterpret_cast<const uint8_t*>(data.data()), data.size());
 
-        // TODO: Check window_ready and dispatch to inference thread pool
-        spdlog::debug("Binary audio: session={} bytes={} ring={}",
-            conn->session_id, data.size(),
-            session->window_ready() ? "window_ready" : "buffering");
+        // Check if a window is ready and dispatch inference
+        while (session->window_ready()) {
+            auto window = session->extract_window();
+            if (window.count == 0) break;
+
+            // Copy window data into the job (ring buffer may be overwritten)
+            transcription::InferenceJob job;
+            job.session_id = conn->session_id;
+            job.audio.assign(window.samples, window.samples + window.count);
+            job.window_start_ms = window.start_ms;
+            job.window_end_ms = window.end_ms;
+
+            // Capture ws for callback — NOTE: uWS callbacks must be called from the event loop
+            // For now, log results. Full async delivery requires uWS loop integration.
+            job.on_complete = [this](const std::string& sid,
+                                     transcription::TranscriptionResult result,
+                                     int64_t start_ms, int64_t end_ms) {
+                on_inference_complete(sid, std::move(result), start_ms, end_ms);
+            };
+
+            inference_pool_.submit(std::move(job));
+            spdlog::debug("Inference job submitted: session={} window=[{}ms, {}ms]",
+                conn->session_id, window.start_ms, window.end_ms);
+        }
+    }
+
+    void on_inference_complete(const std::string& session_id,
+                               transcription::TranscriptionResult result,
+                               int64_t window_start_ms, int64_t window_end_ms) {
+        auto* session = session_mgr_.get_session(session_id);
+        if (!session) return;
+
+        // Append transcript
+        for (const auto& seg : result.segments) {
+            session->append_transcript(seg.text);
+        }
+        session->set_last_audio_ms(window_end_ms);
+
+        spdlog::info("Transcription complete: session={} window=[{}ms, {}ms] segments={}",
+            session_id, window_start_ms, window_end_ms, result.segments.size());
+
+        // TODO: Send PARTIAL_TRANSCRIPT and CHECKPOINT back to client
+        // This requires posting to the uWS event loop (app_.getLoop()->defer())
     }
 
     void handle_end(WebSocket* ws, ConnectionData* conn) {
@@ -259,6 +304,7 @@ private:
     uWS::App app_;
     int port_;
     session::SessionManager& session_mgr_;
+    transcription::InferencePool& inference_pool_;
 };
 
 } // namespace wss::server
