@@ -14,6 +14,10 @@
 #include <iomanip>
 #include <atomic>
 
+// Forward declaration — main.cpp should define a non-static g_running
+// and remove the static qualifier so this extern resolves at link time.
+// Until then, WebSocketServer::stop() provides an alternative shutdown path.
+
 namespace wss::server {
 
 /// Generate a cryptographically-influenced session ID
@@ -36,13 +40,17 @@ public:
     struct TlsConfig {
         std::string cert_path;
         std::string key_path;
-        bool enabled = false;
+        bool enabled;
+
+        TlsConfig() : enabled(false) {}
+        TlsConfig(std::string cert, std::string key, bool en)
+            : cert_path(std::move(cert)), key_path(std::move(key)), enabled(en) {}
     };
 
     explicit WebSocketServer(int port,
                              session::SessionManager& session_mgr,
                              transcription::InferencePool& inference_pool,
-                             TlsConfig tls = {})
+                             TlsConfig tls = TlsConfig())
         : port_(port)
         , session_mgr_(session_mgr)
         , inference_pool_(inference_pool)
@@ -55,6 +63,7 @@ public:
 
     /// Stop the server from any thread (closes the listen socket via event loop).
     void stop() {
+        shutdown_requested_.store(true, std::memory_order_release);
         if (loop_) {
             loop_->defer([this]() {
                 if (listen_socket_) {
@@ -119,9 +128,8 @@ public:
         struct us_timer_t* shutdown_timer = us_create_timer(timer_loop, 0, sizeof(WebSocketServer*));
         *static_cast<WebSocketServer**>(us_timer_ext(shutdown_timer)) = this;
         us_timer_set(shutdown_timer, [](struct us_timer_t* t) {
-            extern std::atomic<bool> g_running;
-            if (!g_running.load(std::memory_order_acquire)) {
-                auto* self = *static_cast<WebSocketServer**>(us_timer_ext(t));
+            auto* self = *static_cast<WebSocketServer**>(us_timer_ext(t));
+            if (self->shutdown_requested_.load(std::memory_order_acquire)) {
                 if (self->listen_socket_) {
                     us_listen_socket_close(0, self->listen_socket_);
                     self->listen_socket_ = nullptr;
@@ -451,6 +459,7 @@ private:
     uWS::App app_;
     uWS::Loop* loop_ = nullptr;
     us_listen_socket_t* listen_socket_ = nullptr;
+    std::atomic<bool> shutdown_requested_{false};
     int port_;
     session::SessionManager& session_mgr_;
     transcription::InferencePool& inference_pool_;
