@@ -5,6 +5,7 @@
 #include "aggregation/result_aggregator.hpp"
 #include "protocol/messages.hpp"
 #include "common.hpp"
+#include <spdlog/spdlog.h>
 #include <memory>
 #include <string>
 #include <mutex>
