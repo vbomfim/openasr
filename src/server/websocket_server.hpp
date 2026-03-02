@@ -76,16 +76,7 @@ public:
     }
 
     void run() {
-        app_.get("/health", [this](auto* res, auto* /*req*/) {
-            nlohmann::json health;
-            health["status"] = "ok";
-            health["active_sessions"] = session_mgr_.active_count();
-            health["max_sessions"] = session_mgr_.max_sessions();
-            health["inference_pending"] = inference_pool_.pending();
-            res->writeHeader("Content-Type", "application/json");
-            res->end(health.dump());
-        })
-        .ws<ConnectionData>("/transcribe", {
+        app_.ws<ConnectionData>("/transcribe", {
             .compression = uWS::DISABLED,
             .maxPayloadLength = 16 * 1024 * 1024,
             .idleTimeout = 120,
@@ -111,6 +102,15 @@ public:
                 }
                 data->state = ConnectionState::CLOSED;
             }
+        })
+        .get("/health", [this](auto* res, auto* /*req*/) {
+            nlohmann::json health;
+            health["status"] = "ok";
+            health["active_sessions"] = session_mgr_.active_count();
+            health["max_sessions"] = session_mgr_.max_sessions();
+            health["inference_pending"] = inference_pool_.pending();
+            res->writeHeader("Content-Type", "application/json");
+            res->end(health.dump());
         })
         .listen(port_, [this](auto* listen_socket) {
             if (listen_socket) {

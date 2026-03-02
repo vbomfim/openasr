@@ -127,6 +127,8 @@ struct ServerConfig {
 
     /// Validate configuration. Returns error message or empty string.
     [[nodiscard]] std::string validate() const {
+        if (model_path.empty())
+            return "WHISPER_MODEL_PATH is required (set via env var or model.path in server.toml)";
         if (port < 1 || port > 65535)
             return "Invalid port: must be 1-65535";
         if (max_sessions == 0)

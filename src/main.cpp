@@ -1,6 +1,5 @@
 #include "server/websocket_server.hpp"
 #include "session/session_manager.hpp"
-#include "transcription/mock_backend.hpp"
 #include "transcription/whisper_backend.hpp"
 #include "transcription/inference_pool.hpp"
 #include "config/config.hpp"
@@ -55,29 +54,22 @@ int main(int /*argc*/, char* /*argv*/[]) {
     sigaction(SIGTERM, &sa, nullptr);
     sigaction(SIGINT, &sa, nullptr);
 
-    // Initialize transcription backend
-    std::unique_ptr<wss::transcription::ITranscriptionBackend> backend;
+    // Initialize whisper.cpp backend (required)
+    if (cfg.model_path.empty()) {
+        spdlog::error("WHISPER_MODEL_PATH is required. Set it via environment variable or model.path in server.toml.");
+        return 1;
+    }
 
-    if (!cfg.model_path.empty()) {
-        auto whisper = std::make_unique<wss::transcription::WhisperBackend>();
-        wss::transcription::BackendConfig bcfg;
-        bcfg.model_path = cfg.model_path;
-        bcfg.language = cfg.language;
-        bcfg.beam_size = cfg.beam_size;
-        bcfg.n_threads = cfg.inference_threads;
+    auto backend = std::make_unique<wss::transcription::WhisperBackend>();
+    wss::transcription::BackendConfig bcfg;
+    bcfg.model_path = cfg.model_path;
+    bcfg.language = cfg.language;
+    bcfg.beam_size = cfg.beam_size;
+    bcfg.n_threads = cfg.inference_threads;
 
-        if (!whisper->initialize(bcfg)) {
-            spdlog::error("Failed to initialize whisper backend — aborting");
-            return 1;
-        }
-        backend = std::move(whisper);
-    } else {
-        spdlog::warn("WHISPER_MODEL_PATH not set — using mock backend");
-        auto mock = std::make_unique<wss::transcription::MockBackend>();
-        wss::transcription::BackendConfig bcfg;
-        bcfg.language = cfg.language;
-        mock->initialize(bcfg);
-        backend = std::move(mock);
+    if (!backend->initialize(bcfg)) {
+        spdlog::error("Failed to load whisper model at '{}' — aborting", cfg.model_path);
+        return 1;
     }
 
     // Start services
