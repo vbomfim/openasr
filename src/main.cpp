@@ -1,4 +1,5 @@
 #include "server/websocket_server.hpp"
+#include "session/session_manager.hpp"
 #include <spdlog/spdlog.h>
 #include <csignal>
 #include <atomic>
@@ -22,7 +23,10 @@ int main(int /*argc*/, char* /*argv*/[]) {
     spdlog::info("whisperx-streaming-server v0.1.0 starting...");
 
     constexpr int kPort = 9090;
-    wss::server::WebSocketServer server(kPort);
+    constexpr size_t kMaxSessions = 20;
+
+    wss::session::SessionManager session_mgr(kMaxSessions);
+    wss::server::WebSocketServer server(kPort, session_mgr);
     server.run();
 
     spdlog::info("Server stopped.");

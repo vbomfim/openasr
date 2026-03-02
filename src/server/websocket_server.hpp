@@ -1,6 +1,7 @@
 #pragma once
 
 #include "server/connection.hpp"
+#include "session/session_manager.hpp"
 #include "protocol/messages.hpp"
 #include "protocol/validator.hpp"
 #include <App.h>
@@ -26,7 +27,8 @@ inline std::string generate_session_id() {
 
 class WebSocketServer {
 public:
-    explicit WebSocketServer(int port) : port_(port) {}
+    explicit WebSocketServer(int port, session::SessionManager& session_mgr)
+        : port_(port), session_mgr_(session_mgr) {}
 
     void run() {
         app_.ws<ConnectionData>("/transcribe", {
@@ -45,10 +47,13 @@ public:
                 handle_message(ws, message, opCode);
             },
 
-            .close = [](auto* ws, int code, std::string_view message) {
+            .close = [this](auto* ws, int code, std::string_view message) {
                 auto* data = ws->getUserData();
                 spdlog::info("Client disconnected: session={} code={} reason={}",
                     data->session_id, code, message);
+                if (!data->session_id.empty()) {
+                    session_mgr_.destroy_session(data->session_id);
+                }
                 data->state = ConnectionState::CLOSED;
             }
         })
@@ -143,7 +148,30 @@ private:
 
         conn->state = ConnectionState::HELLO_RECEIVED;
 
-        // TODO: Create session in SessionManager
+        // Create session in SessionManager
+        session::Session::Config sess_cfg{
+            .session_id = conn->session_id,
+            .language = hello.language,
+            .sample_rate = hello.sample_rate,
+            .encoding = "pcm_s16le", // default; may be overridden per chunk
+            .window_duration_ms = hello.buffer_config.window_duration_ms,
+            .overlap_duration_ms = hello.buffer_config.overlap_duration_ms,
+            .backend_model_id = hello.backend_model_id,
+            .ring_buffer_seconds = 30.0f
+        };
+        auto* session = session_mgr_.create_session(std::move(sess_cfg));
+        if (!session) {
+            send_error(ws, conn->session_id, "SESSION_LIMIT",
+                "Maximum concurrent sessions reached");
+            conn->state = ConnectionState::CLOSED;
+            ws->close();
+            return;
+        }
+
+        // Restore from checkpoint if resuming
+        if (hello.resume_from_checkpoint && hello.checkpoint) {
+            session->restore_from_checkpoint(*hello.checkpoint);
+        }
 
         // Send HELLO_ACK
         protocol::HelloAckPayload ack;
@@ -187,10 +215,21 @@ private:
             return;
         }
 
-        // TODO: Pass raw audio bytes to audio pipeline
-        // data.data() = pointer, data.size() = length — zero-copy access
-        spdlog::debug("Binary audio: session={} bytes={}",
-            conn->session_id, data.size());
+        auto* session = session_mgr_.get_session(conn->session_id);
+        if (!session) {
+            send_error(ws, conn->session_id, "SESSION_NOT_FOUND",
+                "Session not found");
+            return;
+        }
+
+        // Pass raw audio bytes directly to session pipeline — zero-copy from WebSocket
+        session->ingest_audio(
+            reinterpret_cast<const uint8_t*>(data.data()), data.size());
+
+        // TODO: Check window_ready and dispatch to inference thread pool
+        spdlog::debug("Binary audio: session={} bytes={} ring={}",
+            conn->session_id, data.size(),
+            session->window_ready() ? "window_ready" : "buffering");
     }
 
     void handle_end(WebSocket* ws, ConnectionData* conn) {
@@ -206,6 +245,7 @@ private:
 
         // TODO: Finalize transcription, send FINAL_TRANSCRIPT + CHECKPOINT
 
+        session_mgr_.destroy_session(conn->session_id);
         conn->state = ConnectionState::CLOSED;
     }
 
@@ -218,6 +258,7 @@ private:
 
     uWS::App app_;
     int port_;
+    session::SessionManager& session_mgr_;
 };
 
 } // namespace wss::server
