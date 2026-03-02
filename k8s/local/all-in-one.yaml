@@ -42,13 +42,14 @@ spec:
             - sh
             - -c
             - |
-              if [ ! -f /models/ggml-tiny.en.bin ]; then
-                echo "Downloading whisper tiny.en model..."
-                curl -L -o /models/ggml-tiny.en.bin \
-                  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"
-                echo "Download complete: $(ls -lh /models/ggml-tiny.en.bin)"
+              MODEL=/models/ggml-large-v3.bin
+              if [ ! -f "$MODEL" ]; then
+                echo "Downloading whisper large-v3 model (~3GB)..."
+                curl -L --progress-bar -o "$MODEL" \
+                  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin"
+                echo "Download complete: $(ls -lh $MODEL)"
               else
-                echo "Model already exists"
+                echo "Model already exists: $(ls -lh $MODEL)"
               fi
           volumeMounts:
             - name: model-vol
@@ -64,18 +65,18 @@ spec:
                 name: whisperx-server-config
           env:
             - name: WHISPER_MODEL_PATH
-              value: /models/ggml-tiny.en.bin
+              value: /models/ggml-large-v3.bin
           volumeMounts:
             - name: model-vol
               mountPath: /models
               readOnly: true
           resources:
             requests:
-              cpu: "500m"
-              memory: 512Mi
-            limits:
-              cpu: "2"
+              cpu: "1"
               memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
           livenessProbe:
             httpGet:
               path: /health
