@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: whisperx-server-config
+  namespace: whisperx
+  labels:
+    app.kubernetes.io/name: whisperx-server
+    app.kubernetes.io/part-of: whisperx-streaming-server
+data:
+  WSS_PORT: "9090"
+  WSS_MAX_SESSIONS: "20"
+  WSS_WINDOW_DURATION_MS: "20000"
+  WSS_OVERLAP_DURATION_MS: "2000"
+  WSS_INFERENCE_THREADS: "4"
+  WSS_LOG_LEVEL: "info"
+  WSS_LANGUAGE: "en"
+  WSS_BEAM_SIZE: "5"

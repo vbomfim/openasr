@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: whisperx-model-storage
+  namespace: whisperx
+  labels:
+    app.kubernetes.io/name: whisperx-server
+    app.kubernetes.io/part-of: whisperx-streaming-server
+spec:
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 10Gi

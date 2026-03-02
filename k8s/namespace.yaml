@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: whisperx
+  labels:
+    app.kubernetes.io/name: whisperx
+    app.kubernetes.io/part-of: whisperx-streaming-server

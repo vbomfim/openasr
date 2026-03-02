@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: whisperx-server
+  namespace: whisperx
+  labels:
+    app.kubernetes.io/name: whisperx-server
+    app.kubernetes.io/part-of: whisperx-streaming-server
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: whisperx-server
+  ports:
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
