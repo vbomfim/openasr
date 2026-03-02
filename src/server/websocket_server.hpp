@@ -76,7 +76,15 @@ public:
     }
 
     void run() {
-        app_.ws<ConnectionData>("/transcribe", {
+        // Use placement or direct construction on the stack
+        uWS::App app;
+        spdlog::info("App created, constructorFailed={}", app.constructorFailed());
+
+        app.get("/health", [](auto* res, auto* /*req*/) {
+            res->end("OK");
+        });
+        
+        app.ws<ConnectionData>("/transcribe", {
             .compression = uWS::DISABLED,
             .maxPayloadLength = 16 * 1024 * 1024,
             .idleTimeout = 120,
@@ -102,17 +110,9 @@ public:
                 }
                 data->state = ConnectionState::CLOSED;
             }
-        })
-        .get("/health", [this](auto* res, auto* /*req*/) {
-            nlohmann::json health;
-            health["status"] = "ok";
-            health["active_sessions"] = session_mgr_.active_count();
-            health["max_sessions"] = session_mgr_.max_sessions();
-            health["inference_pending"] = inference_pool_.pending();
-            res->writeHeader("Content-Type", "application/json");
-            res->end(health.dump());
-        })
-        .listen(port_, [this](auto* listen_socket) {
+        });
+
+        app.listen(port_, [this](auto* listen_socket) {
             if (listen_socket) {
                 listen_socket_ = listen_socket;
                 spdlog::info("Listening on port {}", port_);
@@ -121,6 +121,8 @@ public:
             }
         });
 
+        // Store pointer for use by send_to_session
+        app_ = &app;
         loop_ = uWS::Loop::get();
 
         // Periodically check for shutdown signal (every 1s)
@@ -139,14 +141,14 @@ public:
             }
         }, 1000, 1000);
 
-        app_.run();
+        app.run();
     }
 
     /// Post a message to a session's client from any thread (thread-safe).
     void send_to_session(const std::string& session_id, std::string message) {
-        if (!loop_) return;
+        if (!loop_ || !app_) return;
         loop_->defer([this, session_id, msg = std::move(message)]() {
-            app_.publish(session_id, msg, uWS::OpCode::TEXT);
+            app_->publish(session_id, msg, uWS::OpCode::TEXT);
         });
     }
 
@@ -456,7 +458,7 @@ private:
         ws->send(response, uWS::OpCode::TEXT);
     }
 
-    uWS::App app_;
+    uWS::App* app_ = nullptr; // non-owning, lifetime managed by run()
     uWS::Loop* loop_ = nullptr;
     us_listen_socket_t* listen_socket_ = nullptr;
     std::atomic<bool> shutdown_requested_{false};
