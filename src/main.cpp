@@ -3,10 +3,10 @@
 #include "transcription/mock_backend.hpp"
 #include "transcription/whisper_backend.hpp"
 #include "transcription/inference_pool.hpp"
+#include "config/config.hpp"
 #include <spdlog/spdlog.h>
 #include <csignal>
 #include <atomic>
-#include <cstdlib>
 #include <memory>
 
 static std::atomic<bool> g_running{true};
@@ -16,7 +16,36 @@ static void signal_handler(int signum) {
     g_running.store(false, std::memory_order_release);
 }
 
+static spdlog::level::level_enum parse_log_level(const std::string& level) {
+    if (level == "trace")    return spdlog::level::trace;
+    if (level == "debug")    return spdlog::level::debug;
+    if (level == "info")     return spdlog::level::info;
+    if (level == "warn")     return spdlog::level::warn;
+    if (level == "error")    return spdlog::level::err;
+    if (level == "critical") return spdlog::level::critical;
+    return spdlog::level::info;
+}
+
 int main(int /*argc*/, char* /*argv*/[]) {
+    // Load config from environment
+    auto cfg = wss::config::ServerConfig::from_env();
+
+    // Set up logging
+    spdlog::set_level(parse_log_level(cfg.log_level));
+    spdlog::info("whisperx-streaming-server v0.1.0 starting...");
+
+    // Validate config
+    auto validation_error = cfg.validate();
+    if (!validation_error.empty()) {
+        spdlog::error("Configuration error: {}", validation_error);
+        return 1;
+    }
+
+    spdlog::info("Config: port={} max_sessions={} window={}ms overlap={}ms inference_threads={}",
+        cfg.port, cfg.max_sessions, cfg.window_duration_ms,
+        cfg.overlap_duration_ms, cfg.inference_threads);
+
+    // Install signal handlers
     struct sigaction sa{};
     sa.sa_handler = signal_handler;
     sigemptyset(&sa.sa_mask);
@@ -24,25 +53,18 @@ int main(int /*argc*/, char* /*argv*/[]) {
     sigaction(SIGTERM, &sa, nullptr);
     sigaction(SIGINT, &sa, nullptr);
 
-    spdlog::set_level(spdlog::level::info);
-    spdlog::info("whisperx-streaming-server v0.1.0 starting...");
-
-    constexpr int kPort = 9090;
-    constexpr size_t kMaxSessions = 20;
-    constexpr size_t kInferenceThreads = 4;
-
     // Initialize transcription backend
     std::unique_ptr<wss::transcription::ITranscriptionBackend> backend;
 
-    const char* model_path = std::getenv("WHISPER_MODEL_PATH");
-    if (model_path && model_path[0] != '\0') {
+    if (!cfg.model_path.empty()) {
         auto whisper = std::make_unique<wss::transcription::WhisperBackend>();
-        wss::transcription::BackendConfig cfg;
-        cfg.model_path = model_path;
-        cfg.language = "en";
-        cfg.n_threads = static_cast<int>(kInferenceThreads);
+        wss::transcription::BackendConfig bcfg;
+        bcfg.model_path = cfg.model_path;
+        bcfg.language = cfg.language;
+        bcfg.beam_size = cfg.beam_size;
+        bcfg.n_threads = cfg.inference_threads;
 
-        if (!whisper->initialize(cfg)) {
+        if (!whisper->initialize(bcfg)) {
             spdlog::error("Failed to initialize whisper backend — aborting");
             return 1;
         }
@@ -50,17 +72,22 @@ int main(int /*argc*/, char* /*argv*/[]) {
     } else {
         spdlog::warn("WHISPER_MODEL_PATH not set — using mock backend");
         auto mock = std::make_unique<wss::transcription::MockBackend>();
-        wss::transcription::BackendConfig cfg;
-        cfg.language = "en";
-        mock->initialize(cfg);
+        wss::transcription::BackendConfig bcfg;
+        bcfg.language = cfg.language;
+        mock->initialize(bcfg);
         backend = std::move(mock);
     }
 
-    wss::transcription::InferencePool inference_pool(*backend, kInferenceThreads);
-    wss::session::SessionManager session_mgr(kMaxSessions);
-    wss::server::WebSocketServer server(kPort, session_mgr, inference_pool);
+    // Start services
+    wss::transcription::InferencePool inference_pool(
+        *backend, static_cast<size_t>(cfg.inference_threads));
+    wss::session::SessionManager session_mgr(cfg.max_sessions);
+    wss::server::WebSocketServer server(cfg.port, session_mgr, inference_pool);
+
+    spdlog::info("Starting server...");
     server.run();
 
+    // Graceful shutdown
     spdlog::info("Shutting down inference pool...");
     inference_pool.shutdown();
     spdlog::info("Server stopped.");
