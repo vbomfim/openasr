@@ -13,7 +13,6 @@
 #include <sstream>
 #include <iomanip>
 #include <atomic>
-#include <fstream>
 #include <array>
 #include <cstring>
 
@@ -23,24 +22,21 @@
 
 namespace wss::server {
 
-/// Generate a cryptographically secure session ID using /dev/urandom
+/// Generate a cryptographically secure session ID using std::random_device
+/// (uses getrandom() syscall on modern Linux — no /dev/urandom file I/O)
 inline std::string generate_session_id() {
+    std::random_device rd;
+    std::uniform_int_distribution<uint64_t> dist;
+    std::mt19937_64 gen(rd());
+
     std::array<uint8_t, 16> bytes{};
-    std::ifstream urandom("/dev/urandom", std::ios::binary);
-    if (urandom.good()) {
-        urandom.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
-    } else {
-        // Fallback to random_device
-        std::random_device rd;
-        std::mt19937_64 gen(rd());
-        std::uniform_int_distribution<uint64_t> dist;
-        uint64_t a = dist(gen), b = dist(gen);
-        std::memcpy(bytes.data(), &a, 8);
-        std::memcpy(bytes.data() + 8, &b, 8);
-    }
+    uint64_t a = dist(gen), b = dist(gen);
+    std::memcpy(bytes.data(), &a, 8);
+    std::memcpy(bytes.data() + 8, &b, 8);
+
     std::ostringstream oss;
     oss << std::hex << std::setfill('0');
-    for (auto b : bytes) oss << std::setw(2) << static_cast<int>(b);
+    for (auto byte : bytes) oss << std::setw(2) << static_cast<int>(byte);
     return oss.str();
 }
 
@@ -102,6 +98,30 @@ public:
             res->end(health.dump());
         });
         
+        app.get("/ready", [this](auto* res, auto* /*req*/) {
+            bool model_ready = inference_pool_.backend_ready();
+            bool queue_ok = inference_pool_.pending() < 50; // not overloaded
+            bool sessions_ok = session_mgr_.active_count() < session_mgr_.max_sessions();
+
+            if (model_ready && queue_ok) {
+                nlohmann::json j;
+                j["status"] = "ready";
+                j["model_ready"] = model_ready;
+                j["queue_ok"] = queue_ok;
+                j["sessions_available"] = sessions_ok;
+                res->writeHeader("Content-Type", "application/json");
+                res->end(j.dump());
+            } else {
+                res->writeStatus("503 Service Unavailable");
+                nlohmann::json j;
+                j["status"] = "not_ready";
+                j["model_ready"] = model_ready;
+                j["queue_ok"] = queue_ok;
+                res->writeHeader("Content-Type", "application/json");
+                res->end(j.dump());
+            }
+        });
+
         app.ws<ConnectionData>("/transcribe", {
             .compression = uWS::DISABLED,
             .maxPayloadLength = 16 * 1024 * 1024,
@@ -152,9 +172,28 @@ public:
             .close = [this](auto* ws, int code, std::string_view message) {
                 active_connections_.fetch_sub(1);
                 auto* data = ws->getUserData();
-                spdlog::info("Client disconnected: session={} code={} reason={} ({} active)",
-                    data->session_id, code, message, active_connections_.load());
+                spdlog::info("Client disconnected: session={} code={} reason={}",
+                    data->session_id, code, message);
                 if (!data->session_id.empty()) {
+                    // Drain buffered windows before destroying session
+                    auto* session = session_mgr_.get_session(data->session_id);
+                    if (session) {
+                        while (session->window_ready()) {
+                            auto window = session->extract_window();
+                            if (window.count == 0) break;
+                            transcription::InferenceJob job;
+                            job.session_id = data->session_id;
+                            job.audio.assign(window.samples, window.samples + window.count);
+                            job.window_start_ms = window.start_ms;
+                            job.window_end_ms = window.end_ms;
+                            job.on_complete = [this](const std::string& sid,
+                                                     transcription::TranscriptionResult result,
+                                                     int64_t start_ms, int64_t end_ms) {
+                                on_inference_complete(sid, std::move(result), start_ms, end_ms);
+                            };
+                            inference_pool_.submit(std::move(job));
+                        }
+                    }
                     ws->unsubscribe(data->session_id);
                     session_mgr_.destroy_session(data->session_id);
                 }

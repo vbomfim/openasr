@@ -47,6 +47,7 @@ struct ServerConfig {
 
     // Authentication
     std::string api_key; // if empty, auth is disabled (dev mode)
+    bool require_auth = false; // set via WSS_REQUIRE_AUTH=true
 
     /// Load configuration from environment variables.
     static ServerConfig from_env() {
@@ -65,6 +66,9 @@ struct ServerConfig {
         if (auto* v = std::getenv("WSS_INFERENCE_THREADS"))  cfg.inference_threads = safe_atoi(v, cfg.inference_threads);
         if (auto* v = std::getenv("WSS_LOG_LEVEL"))          cfg.log_level = v;
         if (auto* v = std::getenv("WSS_API_KEY"))            cfg.api_key = v;
+        if (auto* v = std::getenv("WSS_REQUIRE_AUTH")) {
+            cfg.require_auth = (std::string(v) == "true" || std::string(v) == "1");
+        }
 
         return cfg;
     }
@@ -135,6 +139,9 @@ struct ServerConfig {
         if (auto* v = std::getenv("WSS_INFERENCE_THREADS"))  cfg.inference_threads = safe_atoi(v, cfg.inference_threads);
         if (auto* v = std::getenv("WSS_LOG_LEVEL"))          cfg.log_level = v;
         if (auto* v = std::getenv("WSS_API_KEY"))            cfg.api_key = v;
+        if (auto* v = std::getenv("WSS_REQUIRE_AUTH")) {
+            cfg.require_auth = (std::string(v) == "true" || std::string(v) == "1");
+        }
 
         return cfg;
     }

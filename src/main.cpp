@@ -43,6 +43,11 @@ int main(int /*argc*/, char* /*argv*/[]) {
         return 1;
     }
 
+    if (cfg.require_auth && cfg.api_key.empty()) {
+        spdlog::error("WSS_REQUIRE_AUTH=true but WSS_API_KEY is empty — aborting");
+        return 1;
+    }
+
     spdlog::info("Config: port={} max_sessions={} window={}ms overlap={}ms inference_threads={}",
         cfg.port, cfg.max_sessions, cfg.window_duration_ms,
         cfg.overlap_duration_ms, cfg.inference_threads);

@@ -42,11 +42,11 @@ spec:
             - sh
             - -c
             - |
-              MODEL=/models/ggml-large-v3.bin
+              MODEL=/models/ggml-small.en.bin
               if [ ! -f "$MODEL" ]; then
-                echo "Downloading whisper large-v3 model (~3GB)..."
+                echo "Downloading whisper small.en model (~466MB)..."
                 curl -L --progress-bar -o "$MODEL" \
-                  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin"
+                  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin"
                 echo "Download complete: $(ls -lh $MODEL)"
               else
                 echo "Model already exists: $(ls -lh $MODEL)"
@@ -54,6 +54,7 @@ spec:
           volumeMounts:
             - name: model-vol
               mountPath: /models
+      terminationGracePeriodSeconds: 120
       containers:
         - name: whisperx-server
           image: whisperx-server:latest
@@ -65,7 +66,7 @@ spec:
                 name: whisperx-server-config
           env:
             - name: WHISPER_MODEL_PATH
-              value: /models/ggml-large-v3.bin
+              value: /models/ggml-small.en.bin
           volumeMounts:
             - name: model-vol
               mountPath: /models
@@ -86,10 +87,11 @@ spec:
             failureThreshold: 5
           readinessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: 9090
             initialDelaySeconds: 15
             periodSeconds: 10
+            failureThreshold: 3
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000

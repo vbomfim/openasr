@@ -16,6 +16,7 @@ spec:
       labels:
         app.kubernetes.io/name: whisperx-server
     spec:
+      terminationGracePeriodSeconds: 120
       containers:
         - name: whisperx-server
           image: whisperx-server:latest
@@ -43,12 +44,16 @@ spec:
             httpGet:
               path: /health
               port: 9090
+            initialDelaySeconds: 30
             periodSeconds: 30
+            failureThreshold: 5
           readinessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: 9090
+            initialDelaySeconds: 15
             periodSeconds: 10
+            failureThreshold: 3
           securityContext:
             runAsNonRoot: true
             readOnlyRootFilesystem: true

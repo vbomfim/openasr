@@ -79,6 +79,11 @@ public:
         return queue_.size();
     }
 
+    /// Check if the backend is ready for inference.
+    [[nodiscard]] bool backend_ready() const {
+        return backend_.is_ready();
+    }
+
 private:
     void worker_loop() {
         while (true) {
