@@ -30,12 +30,28 @@ inline std::string generate_session_id() {
 
 class WebSocketServer {
 public:
+    /// TLS configuration. In production, TLS termination via K8s ingress or
+    /// a sidecar proxy (e.g., envoy) is recommended. Native TLS requires
+    /// rebuilding with uWS::SSLApp (a different template instantiation).
+    struct TlsConfig {
+        std::string cert_path;
+        std::string key_path;
+        bool enabled = false;
+    };
+
     explicit WebSocketServer(int port,
                              session::SessionManager& session_mgr,
-                             transcription::InferencePool& inference_pool)
+                             transcription::InferencePool& inference_pool,
+                             TlsConfig tls = {})
         : port_(port)
         , session_mgr_(session_mgr)
-        , inference_pool_(inference_pool) {}
+        , inference_pool_(inference_pool)
+        , tls_config_(std::move(tls)) {
+        if (tls_config_.enabled) {
+            spdlog::warn("TLS enabled in config but native TLS requires uWS::SSLApp. "
+                         "Use a reverse proxy (K8s ingress, envoy) for TLS termination.");
+        }
+    }
 
     /// Stop the server from any thread (closes the listen socket via event loop).
     void stop() {
@@ -438,6 +454,7 @@ private:
     int port_;
     session::SessionManager& session_mgr_;
     transcription::InferencePool& inference_pool_;
+    TlsConfig tls_config_;
 };
 
 } // namespace wss::server
