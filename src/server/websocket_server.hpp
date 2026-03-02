@@ -197,14 +197,11 @@ private:
         }
 
         switch (*type) {
-            case protocol::MessageType::HELLO:
-                handle_hello(ws, conn, msg["payload"]);
+            case protocol::MessageType::SPEECH_CONFIG:
+                handle_speech_config(ws, conn, msg["payload"]);
                 break;
-            case protocol::MessageType::AUDIO_CHUNK:
-                handle_audio_chunk_meta(ws, conn, msg["payload"]);
-                break;
-            case protocol::MessageType::END:
-                handle_end(ws, conn);
+            case protocol::MessageType::SPEECH_END:
+                handle_speech_end(ws, conn);
                 break;
             default:
                 send_error(ws, conn->session_id, "INVALID_MESSAGE",
@@ -213,41 +210,42 @@ private:
         }
     }
 
-    void handle_hello(WebSocket* ws, ConnectionData* conn, const nlohmann::json& payload) {
+    void handle_speech_config(WebSocket* ws, ConnectionData* conn, const nlohmann::json& payload) {
         if (conn->state != ConnectionState::CONNECTED) {
             send_error(ws, conn->session_id, "INVALID_STATE",
-                "HELLO only allowed in CONNECTED state");
+                "speech.config only allowed in CONNECTED state");
             return;
         }
 
-        auto vr = protocol::validate_hello(payload);
+        auto vr = protocol::validate_speech_config(payload);
         if (!vr.valid) {
             send_error(ws, conn->session_id, vr.error_code, vr.error_message);
             return;
         }
 
-        auto hello = payload.get<protocol::HelloPayload>();
+        auto config = payload.get<protocol::SpeechConfigPayload>();
 
         // Assign or resume session
-        if (hello.resume_from_checkpoint && hello.checkpoint) {
-            conn->session_id = hello.checkpoint->session_id;
+        if (config.resume_checkpoint) {
+            conn->session_id = config.resume_checkpoint->session_id;
             spdlog::info("Resuming session: {}", conn->session_id);
         } else {
             conn->session_id = generate_session_id();
             spdlog::info("New session: {}", conn->session_id);
         }
 
-        conn->state = ConnectionState::HELLO_RECEIVED;
+        // Store encoding in connection data (used for all binary frames)
+        conn->encoding = config.encoding;
 
         // Create session in SessionManager
         session::Session::Config sess_cfg{
             .session_id = conn->session_id,
-            .language = hello.language,
-            .sample_rate = hello.sample_rate,
-            .encoding = "pcm_s16le", // default; may be overridden per chunk
-            .window_duration_ms = hello.buffer_config.window_duration_ms,
-            .overlap_duration_ms = hello.buffer_config.overlap_duration_ms,
-            .backend_model_id = hello.backend_model_id,
+            .language = config.language,
+            .sample_rate = config.sample_rate,
+            .encoding = config.encoding,
+            .window_duration_ms = config.window_duration_ms,
+            .overlap_duration_ms = config.overlap_duration_ms,
+            .backend_model_id = config.model_id,
             .ring_buffer_seconds = 30.0f
         };
         auto* session = session_mgr_.create_session(std::move(sess_cfg));
@@ -260,53 +258,25 @@ private:
         }
 
         // Restore from checkpoint if resuming
-        if (hello.resume_from_checkpoint && hello.checkpoint) {
-            session->restore_from_checkpoint(*hello.checkpoint);
+        if (config.resume_checkpoint) {
+            session->restore_from_checkpoint(*config.resume_checkpoint);
         }
 
-        // Send HELLO_ACK
-        protocol::HelloAckPayload ack;
-        ack.effective_buffer_config = hello.buffer_config;
-        if (hello.checkpoint) {
-            ack.checkpoint = *hello.checkpoint;
+        // Send speech.config.ack
+        protocol::SpeechConfigAckPayload ack;
+        ack.session_id = conn->session_id;
+        ack.effective_config = config;
+        if (config.resume_checkpoint) {
+            ack.checkpoint = *config.resume_checkpoint;
         }
 
-        auto response = protocol::make_hello_ack(conn->session_id, ack);
+        auto response = protocol::make_speech_config_ack(conn->session_id, ack);
         ws->send(response, uWS::OpCode::TEXT);
 
         // Subscribe to session topic for async result delivery
         ws->subscribe(conn->session_id);
 
         conn->state = ConnectionState::STREAMING;
-    }
-
-    void handle_audio_chunk_meta(WebSocket* ws, ConnectionData* conn,
-                                 const nlohmann::json& payload) {
-        if (conn->state != ConnectionState::STREAMING &&
-            conn->state != ConnectionState::HELLO_RECEIVED) {
-            send_error(ws, conn->session_id, "INVALID_STATE",
-                "AUDIO_CHUNK only allowed after HELLO");
-            return;
-        }
-
-        auto vr = protocol::validate_audio_chunk(payload);
-        if (!vr.valid) {
-            send_error(ws, conn->session_id, vr.error_code, vr.error_message);
-            return;
-        }
-
-        conn->state = ConnectionState::STREAMING;
-
-        // Store metadata; the next binary frame carries the actual audio data
-        auto meta = payload.get<protocol::AudioChunkMetadata>();
-        conn->pending_audio.valid = true;
-        conn->pending_audio.chunk_id = meta.chunk_id;
-        conn->pending_audio.timestamp_ms = meta.timestamp_ms;
-        conn->pending_audio.encoding = meta.encoding;
-        conn->pending_audio.duration_ms = meta.duration_ms;
-
-        spdlog::debug("Audio chunk metadata: session={} ts={}ms encoding={}",
-            conn->session_id, meta.timestamp_ms, meta.encoding);
     }
 
     void handle_binary(WebSocket* ws, ConnectionData* conn, std::string_view data) {
@@ -323,14 +293,9 @@ private:
             return;
         }
 
-        // Resolve encoding: prefer per-chunk metadata, fall back to session default
-        std::string encoding = conn->pending_audio.valid ?
-            conn->pending_audio.encoding : session->config().encoding;
-        conn->pending_audio.valid = false;
-
         // Pass raw audio bytes directly to session pipeline
         size_t written = session->ingest_audio(
-            reinterpret_cast<const uint8_t*>(data.data()), data.size(), encoding);
+            reinterpret_cast<const uint8_t*>(data.data()), data.size());
 
         spdlog::debug("Binary ingested: session={} bytes={} written={} ring_total={} window_sz={} window_ready={}",
             conn->session_id, data.size(), written,
@@ -342,11 +307,11 @@ private:
         float fill = session->ring_buffer_fill_ratio();
         if (fill > 0.8f && !conn->backpressure_sent) {
             send_to_session(conn->session_id,
-                protocol::make_backpressure(conn->session_id, "slow_down"));
+                protocol::make_speech_backpressure(conn->session_id, "slow_down"));
             conn->backpressure_sent = true;
         } else if (fill < 0.5f && conn->backpressure_sent) {
             send_to_session(conn->session_id,
-                protocol::make_backpressure(conn->session_id, "ok"));
+                protocol::make_speech_backpressure(conn->session_id, "ok"));
             conn->backpressure_sent = false;
         }
 
@@ -389,33 +354,27 @@ private:
         spdlog::info("Transcription complete: session={} window=[{}ms, {}ms] segments={}",
             session_id, window_start_ms, window_end_ms, result.segments.size());
 
-        // Build PARTIAL_TRANSCRIPT
-        protocol::PartialTranscriptPayload partial;
-        partial.window_start_ms = window_start_ms;
-        partial.window_end_ms = window_end_ms;
-        partial.is_stable = true;
+        // Build speech.hypothesis for each segment
         for (const auto& seg : result.segments) {
-            partial.segments.push_back({
-                .start_ms = seg.start_ms,
-                .end_ms = seg.end_ms,
-                .text = seg.text,
-                .speaker = seg.speaker
-            });
+            protocol::HypothesisPayload hyp;
+            hyp.offset = seg.start_ms;
+            hyp.duration = seg.end_ms - seg.start_ms;
+            hyp.text = seg.text;
+            send_to_session(session_id,
+                protocol::make_speech_hypothesis(session_id, hyp));
         }
-        send_to_session(session_id,
-            protocol::make_partial_transcript(session_id, partial));
 
-        // Build and send CHECKPOINT
+        // Build and send speech.checkpoint
         auto checkpoint = session->make_checkpoint();
         send_to_session(session_id,
-            protocol::make_checkpoint(session_id, checkpoint));
+            protocol::make_speech_checkpoint(session_id, checkpoint));
     }
 
-    void handle_end(WebSocket* ws, ConnectionData* conn) {
+    void handle_speech_end(WebSocket* ws, ConnectionData* conn) {
         if (conn->state != ConnectionState::STREAMING &&
             conn->state != ConnectionState::HELLO_RECEIVED) {
             send_error(ws, conn->session_id, "INVALID_STATE",
-                "END only allowed after HELLO");
+                "speech.end only allowed after speech.config");
             return;
         }
 
@@ -442,20 +401,19 @@ private:
                 inference_pool_.submit(std::move(job));
             }
 
-            // Build FINAL_TRANSCRIPT from accumulated session transcript
-            protocol::FinalTranscriptPayload final_payload;
-            final_payload.segments.push_back({
-                .start_ms = 0,
-                .end_ms = session->last_audio_ms(),
-                .text = session->transcript(),
-                .speaker = ""
-            });
-            ws->send(protocol::make_final_transcript(conn->session_id, final_payload),
+            // Build speech.phrase from accumulated session transcript
+            protocol::PhrasePayload phrase;
+            phrase.offset = 0;
+            phrase.duration = session->last_audio_ms();
+            phrase.text = session->transcript();
+            phrase.confidence = 1.0f;
+            phrase.status = "Success";
+            ws->send(protocol::make_speech_phrase(conn->session_id, phrase),
                      uWS::OpCode::TEXT);
 
             // Final checkpoint
             auto checkpoint = session->make_checkpoint();
-            ws->send(protocol::make_checkpoint(conn->session_id, checkpoint),
+            ws->send(protocol::make_speech_checkpoint(conn->session_id, checkpoint),
                      uWS::OpCode::TEXT);
         }
 
@@ -467,7 +425,7 @@ private:
     void send_error(WebSocket* ws, const std::string& session_id,
                     const std::string& code, const std::string& message) {
         spdlog::warn("Error: session={} code={} msg={}", session_id, code, message);
-        auto response = protocol::make_error(session_id, code, message);
+        auto response = protocol::make_speech_error(session_id, code, message);
         ws->send(response, uWS::OpCode::TEXT);
     }
 
