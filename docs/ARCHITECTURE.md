@@ -332,16 +332,16 @@ sequenceDiagram
 
 ### `PROTOCOL.md`
 
-# WhisperX Streaming Transcription Server – WebSocket Protocol
+# WhisperX Streaming Transcription Server – Azure-Aligned WebSocket Protocol
 
 ## 1. Transport
 
 - **Protocol:** WebSocket over TCP
 - **Encoding:**
-  - Control messages: JSON (UTF‑8)
-  - Audio: binary frames (raw PCM or encoded), referenced by JSON metadata
+  - Control messages: JSON text frames (UTF‑8)
+  - Audio: binary frames (raw PCM — no per-chunk JSON metadata)
 - **Connection:**
-  - URL example: `wss://host/transcribe`
+  - URL: `wss://host/transcribe`
 
 ---
 
@@ -351,95 +351,79 @@ All JSON messages share this structure:
 
 ```json
 {
-  "type": "STRING",
-  "session_id": "STRING",
+  "type": "speech.<event>",
   "payload": { }
 }
 ```
 
-- `type`: message type (see below)
-- `session_id`: unique session identifier (string)
-- `payload`: type‑specific content
+- `type`: dot-namespaced event type (see below)
+- `payload`: event‑specific content
 
 ---
 
-## 3. Message types
+## 3. Session flow
 
-### 3.1 `HELLO` (client → server)
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server
 
-Initialize or resume a session.
+    C->>S: speech.config (JSON text frame)
+    S->>C: speech.config.ack (JSON text frame)
 
-```json
-{
-  "type": "HELLO",
-  "session_id": null,
-  "payload": {
-    "language": "en",
-    "sample_rate": 16000,
-    "buffer_config": {
-      "window_duration_ms": 20000,
-      "overlap_duration_ms": 2000
-    },
-    "resume_from_checkpoint": false,
-    "checkpoint": null,
-    "backend_model_id": "whisper-large-v3"
-  }
-}
-```
+    loop Continuous audio streaming
+        C->>S: binary frame (raw PCM)
+        S-->>C: speech.hypothesis (interim)
+        S-->>C: speech.phrase (final)
+        S-->>C: speech.checkpoint (periodic)
+        S-->>C: speech.backpressure (if needed)
+    end
 
-For resume:
-
-```json
-{
-  "type": "HELLO",
-  "session_id": "previous-session-id-or-new",
-  "payload": {
-    "language": "en",
-    "sample_rate": 16000,
-    "buffer_config": {
-      "window_duration_ms": 20000,
-      "overlap_duration_ms": 2000
-    },
-    "resume_from_checkpoint": true,
-    "checkpoint": {
-      "session_id": "abc123",
-      "last_audio_ms": 620000,
-      "last_text_offset": 45678,
-      "full_transcript": "Hello everyone ...",
-      "buffer_config": {
-        "window_duration_ms": 20000,
-        "overlap_duration_ms": 2000
-      },
-      "backend_model_id": "whisper-large-v3"
-    },
-    "backend_model_id": "whisper-large-v3"
-  }
-}
+    C->>S: speech.end (JSON text frame)
+    S->>C: speech.phrase (final)
+    S->>C: speech.checkpoint (final)
 ```
 
 ---
 
-### 3.2 `HELLO_ACK` (server → client)
+## 4. Message types
+
+### 4.1 `speech.config` (client → server)
+
+Initialize a session. Sent once after connecting.
 
 ```json
 {
-  "type": "HELLO_ACK",
-  "session_id": "abc123",
+  "type": "speech.config",
   "payload": {
-    "effective_buffer_config": {
-      "window_duration_ms": 20000,
-      "overlap_duration_ms": 2000
-    },
-    "checkpoint": {
+    "language": "en",
+    "sample_rate": 16000,
+    "encoding": "pcm_s16le",
+    "window_duration_ms": 5000,
+    "overlap_duration_ms": 500,
+    "model_id": "whisper-large-v3",
+    "resume_checkpoint": null
+  }
+}
+```
+
+To resume from a previous checkpoint, pass the checkpoint object received from the server:
+
+```json
+{
+  "type": "speech.config",
+  "payload": {
+    "language": "en",
+    "sample_rate": 16000,
+    "encoding": "pcm_s16le",
+    "window_duration_ms": 5000,
+    "overlap_duration_ms": 500,
+    "model_id": "whisper-large-v3",
+    "resume_checkpoint": {
       "session_id": "abc123",
       "last_audio_ms": 620000,
       "last_text_offset": 45678,
-      "full_transcript": "Hello everyone ...",
-      "buffer_config": {
-        "window_duration_ms": 20000,
-        "overlap_duration_ms": 2000
-      },
-      "backend_model_id": "whisper-large-v3"
+      "transcript": "Hello everyone ..."
     }
   }
 }
@@ -447,125 +431,128 @@ For resume:
 
 ---
 
-### 3.3 `AUDIO_CHUNK` (client → server)
+### 4.2 `speech.config.ack` (server → client)
 
-JSON metadata + binary frame.
-
-JSON:
+Confirms session is ready. The client must wait for this before sending audio.
 
 ```json
 {
-  "type": "AUDIO_CHUNK",
-  "session_id": "abc123",
+  "type": "speech.config.ack",
   "payload": {
-    "chunk_id": 42,
-    "timestamp_ms": 605000,
-    "encoding": "pcm_s16le",
-    "duration_ms": 200
-  }
-}
-```
-
-Binary frame:
-
-- Raw PCM 16‑bit little‑endian, mono, at `sample_rate`
-- Or another agreed encoding (e.g., Opus) if negotiated out‑of‑band
-
----
-
-### 3.4 `PARTIAL_TRANSCRIPT` (server → client)
-
-```json
-{
-  "type": "PARTIAL_TRANSCRIPT",
-  "session_id": "abc123",
-  "payload": {
-    "window_start_ms": 600000,
-    "window_end_ms": 620000,
-    "segments": [
-      {
-        "start_ms": 601200,
-        "end_ms": 608900,
-        "text": "Hello everyone, thanks for joining...",
-        "speaker": "SPEAKER_1"
-      }
-    ],
-    "is_stable": false
-  }
-}
-```
-
-- `is_stable`:
-  - `false`: may change as more context arrives
-  - `true`: considered stable (e.g., after alignment)
-
----
-
-### 3.5 `FINAL_TRANSCRIPT` (server → client)
-
-```json
-{
-  "type": "FINAL_TRANSCRIPT",
-  "session_id": "abc123",
-  "payload": {
-    "segments": [
-      {
-        "start_ms": 0,
-        "end_ms": 7200000,
-        "text": "Full aligned transcript...",
-        "speaker": "SPEAKER_1"
-      }
-    ]
+    "session_id": "abc123",
+    "effective_config": {
+      "sample_rate": 16000,
+      "encoding": "pcm_s16le",
+      "window_duration_ms": 5000,
+      "overlap_duration_ms": 500,
+      "model_id": "whisper-large-v3"
+    }
   }
 }
 ```
 
 ---
 
-### 3.6 `CHECKPOINT` (server → client)
+### 4.3 Binary frames (client → server)
+
+After receiving `speech.config.ack`, the client streams audio as **continuous binary WebSocket frames** containing raw PCM data.
+
+- Format: 16‑bit little‑endian, mono, at the configured `sample_rate`
+- No per-chunk JSON metadata — the server tracks timing from the byte stream
+- Recommended chunk size: 200ms of audio (e.g., 6400 bytes at 16kHz)
+
+---
+
+### 4.4 `speech.hypothesis` (server → client)
+
+Interim (partial) transcription result. May be revised as more audio arrives.
 
 ```json
 {
-  "type": "CHECKPOINT",
-  "session_id": "abc123",
+  "type": "speech.hypothesis",
+  "payload": {
+    "offset_ms": 1200,
+    "duration_ms": 3400,
+    "text": "Hello everyone, thanks for"
+  }
+}
+```
+
+---
+
+### 4.5 `speech.phrase` (server → client)
+
+Final transcription result for a segment. Will not change.
+
+```json
+{
+  "type": "speech.phrase",
+  "payload": {
+    "offset_ms": 1200,
+    "duration_ms": 7700,
+    "text": "Hello everyone, thanks for joining today.",
+    "confidence": 0.94
+  }
+}
+```
+
+---
+
+### 4.6 `speech.checkpoint` (server → client)
+
+Periodic session state snapshot. Store this to resume the session later.
+
+```json
+{
+  "type": "speech.checkpoint",
   "payload": {
     "session_id": "abc123",
     "last_audio_ms": 620000,
     "last_text_offset": 45678,
-    "full_transcript": "Hello everyone ...",
-    "buffer_config": {
-      "window_duration_ms": 20000,
-      "overlap_duration_ms": 2000
-    },
-    "backend_model_id": "whisper-large-v3"
+    "transcript": "Hello everyone ..."
   }
 }
 ```
 
-- Client is expected to **store this checkpoint** if it wants to resume later, possibly on a different server instance.
-
 ---
 
-### 3.7 `END` (client → server)
+### 4.7 `speech.backpressure` (server → client)
+
+Flow control signal. The client should slow down or pause sending audio.
 
 ```json
 {
-  "type": "END",
-  "session_id": "abc123",
+  "type": "speech.backpressure",
+  "payload": {
+    "buffered_ms": 15000,
+    "max_buffered_ms": 20000,
+    "action": "pause"
+  }
+}
+```
+
+- `action`: `"pause"` (stop sending) or `"resume"` (continue sending)
+
+---
+
+### 4.8 `speech.end` (client → server)
+
+Signals that no more audio will be sent.
+
+```json
+{
+  "type": "speech.end",
   "payload": {}
 }
 ```
 
-- Signals that no more audio will be sent for this session.
-
 ---
 
-### 3.8 `ERROR` (server → client)
+### 4.9 `speech.error` (server → client)
 
 ```json
 {
-  "type": "ERROR",
-  "session_id": "abc123",
+  "type": "speech.error",
   "payload": {
     "code": "BUFFER_OVERFLOW",
     "message": "Session exceeded maximum buffered duration"
@@ -575,17 +562,17 @@ Binary frame:
 
 ---
 
-## 4. Configuration knobs (for tuning)
+## 5. Configuration knobs (for tuning)
 
-- `window_duration_ms`  
-- `overlap_duration_ms`  
-- `max_buffered_duration_ms` (per session)  
-- `max_sessions`  
-- `backend_model_id`  
+- `sample_rate` — audio sample rate in Hz
+- `encoding` — audio encoding (e.g., `pcm_s16le`)
+- `window_duration_ms` — transcription window size
+- `overlap_duration_ms` — overlap between windows
+- `model_id` — backend model identifier
 
 These can be:
 
-- Provided in `HELLO`
+- Provided in `speech.config`
 - Overridden by server policy
 - Exposed via config file (`server.toml`)
 
