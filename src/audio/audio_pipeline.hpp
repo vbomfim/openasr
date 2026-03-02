@@ -84,6 +84,7 @@ public:
     [[nodiscard]] AudioRingBuffer& ring_buffer() { return ring_buffer_; }
 
     [[nodiscard]] int32_t input_sample_rate() const { return input_sample_rate_; }
+    [[nodiscard]] bool has_opus() const { return opus_decoder_ != nullptr; }
 
     /// Reset pipeline state (for session resume).
     void reset() {

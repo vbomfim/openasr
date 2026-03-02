@@ -255,9 +255,16 @@ private:
 
         conn->state = ConnectionState::STREAMING;
 
-        // TODO: Store metadata, expect next binary frame as audio data
-        spdlog::debug("Audio chunk metadata: session={} ts={}ms",
-            conn->session_id, payload["timestamp_ms"].get<int64_t>());
+        // Store metadata; the next binary frame carries the actual audio data
+        auto meta = payload.get<protocol::AudioChunkMetadata>();
+        conn->pending_audio.valid = true;
+        conn->pending_audio.chunk_id = meta.chunk_id;
+        conn->pending_audio.timestamp_ms = meta.timestamp_ms;
+        conn->pending_audio.encoding = meta.encoding;
+        conn->pending_audio.duration_ms = meta.duration_ms;
+
+        spdlog::debug("Audio chunk metadata: session={} ts={}ms encoding={}",
+            conn->session_id, meta.timestamp_ms, meta.encoding);
     }
 
     void handle_binary(WebSocket* ws, ConnectionData* conn, std::string_view data) {
@@ -274,9 +281,14 @@ private:
             return;
         }
 
+        // Resolve encoding: prefer per-chunk metadata, fall back to session default
+        std::string encoding = conn->pending_audio.valid ?
+            conn->pending_audio.encoding : session->config().encoding;
+        conn->pending_audio.valid = false;
+
         // Pass raw audio bytes directly to session pipeline
         session->ingest_audio(
-            reinterpret_cast<const uint8_t*>(data.data()), data.size());
+            reinterpret_cast<const uint8_t*>(data.data()), data.size(), encoding);
 
         // Check if a window is ready and dispatch inference
         while (session->window_ready()) {

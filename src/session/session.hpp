@@ -51,6 +51,18 @@ public:
         return pipeline_.ingest_pcm(data, byte_count);
     }
 
+    /// Ingest audio with explicit encoding (from per-chunk AUDIO_CHUNK metadata).
+    size_t ingest_audio(const uint8_t* data, size_t byte_count, const std::string& encoding) {
+        std::lock_guard lock(mutex_);
+        if (encoding == "opus") {
+            if (!pipeline_.has_opus()) {
+                pipeline_.init_opus(config_.sample_rate);
+            }
+            return pipeline_.ingest_opus(data, byte_count);
+        }
+        return pipeline_.ingest_pcm(data, byte_count);
+    }
+
     /// Check if a window is ready for transcription.
     [[nodiscard]] bool window_ready() const {
         return buffer_engine_.window_ready(pipeline_.ring_buffer());
