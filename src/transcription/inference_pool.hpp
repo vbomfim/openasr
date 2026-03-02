@@ -2,6 +2,7 @@
 
 #include "transcription/backend_interface.hpp"
 #include "common.hpp"
+#include <spdlog/spdlog.h>
 #include <atomic>
 #include <condition_variable>
 #include <functional>
@@ -86,8 +87,12 @@ private:
             }
 
             // Run inference
+            spdlog::info("Inference starting: session={} samples={} window_start={}ms",
+                job.session_id, job.audio.size(), job.window_start_ms);
             auto result = backend_.transcribe(
                 job.audio.data(), job.audio.size(), job.window_start_ms);
+            spdlog::info("Inference done: session={} segments={}",
+                job.session_id, result.segments.size());
 
             // Deliver result
             if (job.on_complete) {

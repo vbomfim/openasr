@@ -1,5 +1,5 @@
 # ---- Build stage ----
-FROM debian:bookworm-slim AS builder
+FROM ubuntu:24.04 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -23,11 +23,12 @@ RUN mkdir -p build && cd build && \
       -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
       -DWHISPER_BUILD_TESTS=OFF \
       -DWHISPER_BUILD_EXAMPLES=OFF \
-      -DGGML_METAL=OFF && \
+      -DGGML_METAL=OFF \
+      -DGGML_FP16_VA=OFF && \
     cmake --build . -j$(nproc)
 
 # ---- Runtime stage ----
-FROM debian:bookworm-slim AS runtime
+FROM ubuntu:24.04 AS runtime
 
 # Security: run as non-root
 RUN groupadd --system wss && useradd --system --gid wss --no-create-home wss

@@ -73,24 +73,28 @@ public:
             return {};
         }
         auto* state = *state_opt;
+        spdlog::info("Whisper state checked out, configuring params...");
 
         // Configure inference parameters
         whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH);
         params.language = config_.language.c_str();
-        params.n_threads = config_.n_threads;
+        params.n_threads = 1; // use 1 thread per inference call for safety
         params.beam_search.beam_size = config_.beam_size;
         params.no_timestamps = false;
-        params.print_progress = false;
+        params.print_progress = true;
         params.print_special = false;
         params.print_realtime = false;
         params.print_timestamps = false;
         params.single_segment = false;
         params.no_context = true; // each window is independent
 
+        spdlog::info("Calling whisper_full_with_state: samples={}", sample_count);
+
         // Run inference
         int ret = whisper_full_with_state(
             ctx_, state, params,
             samples, static_cast<int>(sample_count));
+        spdlog::info("whisper_full_with_state returned: {}", ret);
 
         TranscriptionResult result;
 
