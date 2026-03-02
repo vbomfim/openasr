@@ -9,8 +9,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# --- Security-hardened compiler flags ---
-add_compile_options(
+# --- Security-hardened compiler flags (applied to our targets only) ---
+# These are NOT set globally to avoid breaking third-party code
+set(WSS_COMPILE_OPTIONS
     -Wall -Wextra -Wpedantic -Werror
     -Wformat=2 -Wformat-security
     -Wconversion -Wsign-conversion
@@ -22,8 +23,9 @@ add_compile_options(
 )
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    add_compile_options(-O2)
-    add_link_options(-Wl,-z,relro -Wl,-z,now -pie)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        set(WSS_LINK_OPTIONS -Wl,-z,relro -Wl,-z,now -pie)
+    endif()
 endif()
 
 # --- Options ---
@@ -93,6 +95,29 @@ if(NOT SAMPLERATE_FOUND)
     FetchContent_MakeAvailable(libsamplerate)
 endif()
 
+# --- uWebSockets + uSockets ---
+# uSockets is a C library; uWebSockets is header-only C++
+set(USOCKETS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/uWebSockets/uSockets)
+add_library(uSockets STATIC
+    ${USOCKETS_DIR}/src/bsd.c
+    ${USOCKETS_DIR}/src/context.c
+    ${USOCKETS_DIR}/src/loop.c
+    ${USOCKETS_DIR}/src/socket.c
+    ${USOCKETS_DIR}/src/udp.c
+    ${USOCKETS_DIR}/src/eventing/epoll_kqueue.c
+)
+target_include_directories(uSockets PUBLIC ${USOCKETS_DIR}/src)
+target_compile_definitions(uSockets PRIVATE LIBUS_NO_SSL)
+# Disable strict warnings for third-party C code
+target_compile_options(uSockets PRIVATE -w)
+
+# uWebSockets header-only interface
+add_library(uWebSockets INTERFACE)
+target_include_directories(uWebSockets INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/uWebSockets/src
+)
+target_link_libraries(uWebSockets INTERFACE uSockets z)
+
 # --- Main server target ---
 add_executable(transcription_server
     src/main.cpp
@@ -103,8 +128,15 @@ target_include_directories(transcription_server PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+# Apply hardened flags only to our code
+target_compile_options(transcription_server PRIVATE ${WSS_COMPILE_OPTIONS})
+if(DEFINED WSS_LINK_OPTIONS)
+    target_link_options(transcription_server PRIVATE ${WSS_LINK_OPTIONS})
+endif()
+
 target_link_libraries(transcription_server PRIVATE
     whisper
+    uWebSockets
     nlohmann_json::nlohmann_json
     spdlog::spdlog
 )
