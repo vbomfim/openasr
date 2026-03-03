@@ -23,7 +23,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -84,7 +84,7 @@ jobs:
             file: ggml-large-v3.bin
             url: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
