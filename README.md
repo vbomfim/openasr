@@ -372,13 +372,45 @@ HTTP-level errors (before WebSocket upgrade):
 
 **Model memory:** whisper.cpp models are loaded once and shared across all sessions.
 
-| Model | Size | RAM (approx) |
-|-------|------|-------------|
-| tiny.en | 75 MB | ~200 MB |
-| base.en | 142 MB | ~350 MB |
-| small.en | 466 MB | ~1 GB |
-| medium.en | 1.5 GB | ~2.5 GB |
-| large-v3 | 3 GB | ~5 GB |
+| Model | Size | RAM (approx) | CPU Latency (5s window) | Quality |
+|-------|------|-------------|------------------------|---------|
+| tiny.en | 75 MB | ~200 MB | ~1s | Basic |
+| base.en | 142 MB | ~350 MB | ~3s | Good |
+| small.en | 466 MB | ~1 GB | ~8s | Better |
+| medium.en | 1.5 GB | ~2.5 GB | ~20s | High |
+| large-v3 | 3 GB | ~5 GB | ~50s | Best |
+
+### Changing Models
+
+**1. Download a model** from [Hugging Face](https://huggingface.co/ggerganov/whisper.cpp/tree/main):
+
+```bash
+# English-only models (faster, recommended for English)
+curl -L -o models/ggml-base.en.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+
+# Multilingual models (supports 99 languages)
+curl -L -o models/ggml-large-v3.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin
+```
+
+**2. Set the model path** and restart:
+
+```bash
+# Docker
+docker run -e WHISPER_MODEL_PATH=/models/ggml-base.en.bin ...
+
+# Kubernetes — update the env var
+kubectl -n whisperx set env deployment/whisperx-server \
+  WHISPER_MODEL_PATH=/models/ggml-base.en.bin
+kubectl -n whisperx rollout restart deployment whisperx-server
+
+# Or in server.toml
+[model]
+path = "/models/ggml-base.en.bin"
+```
+
+**Available models:** `tiny`, `tiny.en`, `base`, `base.en`, `small`, `small.en`, `medium`, `medium.en`, `large-v1`, `large-v2`, `large-v3`. Models ending in `.en` are English-only and faster. The server loads one model at startup — switching models requires a restart.
 
 ---
 
