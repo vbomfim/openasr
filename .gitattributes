@@ -1,0 +1,2 @@
+# Exclude vendored/third-party code from GitHub language statistics
+third_party/** linguist-vendored
