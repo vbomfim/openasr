@@ -1,5 +1,6 @@
 # OpenASR — Streaming Speech-to-Text Server
 
+[![CI](https://github.com/vbomfim/openasr/actions/workflows/ci.yml/badge.svg)](https://github.com/vbomfim/openasr/actions/workflows/ci.yml)
 [![Build & Push](https://github.com/vbomfim/openasr/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/vbomfim/openasr/actions/workflows/docker-publish.yml)
 [![CodeQL](https://github.com/vbomfim/openasr/actions/workflows/codeql.yml/badge.svg)](https://github.com/vbomfim/openasr/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
