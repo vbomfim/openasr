@@ -175,6 +175,47 @@ Query string authentication is **not supported** — API keys in URLs are logged
 
 Unauthenticated or invalid connections receive `HTTP 401 Unauthorized` before the WebSocket handshake completes.
 
+#### Enterprise authentication (OIDC / Azure Entra ID)
+
+For multi-tenant deployments with per-user tokens, token revocation, and SSO, use an **ingress-level identity provider** instead of a shared API key. The server stays lean — authentication is handled by your infrastructure:
+
+```
+Client (JWT) → [ Ingress / API Gateway ] → OpenASR server
+                validates token here        receives pre-authenticated request
+```
+
+**Example with nginx-ingress + OAuth2 Proxy (Azure Entra ID):**
+
+```yaml
+# Ingress annotation for OAuth2 Proxy
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/auth-url: "https://oauth2-proxy.example.com/oauth2/auth"
+    nginx.ingress.kubernetes.io/auth-signin: "https://oauth2-proxy.example.com/oauth2/start"
+spec:
+  rules:
+    - host: openasr.example.com
+      http:
+        paths:
+          - path: /
+            backend:
+              service:
+                name: whisperx-server
+                port:
+                  number: 9090
+```
+
+Compatible identity providers:
+- **Azure Entra ID** (formerly Azure AD) — via [OAuth2 Proxy](https://oauth2-proxy.github.io/oauth2-proxy/)
+- **Okta / Auth0** — via OAuth2 Proxy or Kong OIDC plugin
+- **Google Identity** — via IAP or OAuth2 Proxy
+- **Keycloak** — self-hosted, via OAuth2 Proxy
+- **Istio** — native JWT validation in the service mesh
+
+When using ingress-level auth, set `WSS_API_KEY` to empty (disable the built-in check) and rely on the gateway to reject unauthenticated requests before they reach the server.
+
 ### Connection Flow
 
 ```mermaid
