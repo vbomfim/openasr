@@ -31,16 +31,16 @@ Pre-built images are available with popular models embedded — no downloads or 
 ```bash
 # Just run — model is included in the image
 docker run -p 9090:9090 -e WSS_API_KEY=your-secret-key \
-  openasr/server:base.en
+  ghcr.io/vbomfim/openasr:base.en
 ```
 
 | Image tag | Model | Image size | Best for |
 |-----------|-------|-----------|----------|
-| `openasr/server:tiny.en` | Whisper tiny (English) | ~140 MB | Development, testing |
-| `openasr/server:base.en` | Whisper base (English) | ~210 MB | Low-latency production |
-| `openasr/server:large-v3-turbo` | Whisper large v3 turbo | ~1.7 GB | Best speed/quality balance |
-| `openasr/server:large-v3` | Whisper large v3 | ~3.1 GB | Maximum accuracy |
-| `openasr/server:latest` | No model (bring your own) | ~63 MB | Production K8s with external model storage |
+| `ghcr.io/vbomfim/openasr:tiny.en` | Whisper tiny (English) | ~140 MB | Development, testing |
+| `ghcr.io/vbomfim/openasr:base.en` | Whisper base (English) | ~210 MB | Low-latency production |
+| `ghcr.io/vbomfim/openasr:large-v3-turbo` | Whisper large v3 turbo | ~1.7 GB | Best speed/quality balance |
+| `ghcr.io/vbomfim/openasr:large-v3` | Whisper large v3 | ~3.1 GB | Maximum accuracy |
+| `ghcr.io/vbomfim/openasr:latest` | No model (bring your own) | ~63 MB | Production K8s with external model storage |
 
 ### Docker with Your Own Model
 
@@ -56,7 +56,7 @@ docker run -p 9090:9090 \
   -v $(pwd)/models:/models \
   -e WHISPER_MODEL_PATH=/models/ggml-base.en.bin \
   -e WSS_API_KEY=your-secret-key \
-  openasr/server:latest
+  ghcr.io/vbomfim/openasr:latest
 ```
 
 ### Docker Compose
@@ -64,7 +64,7 @@ docker run -p 9090:9090 \
 ```yaml
 services:
   openasr:
-    image: openasr/server:base.en
+    image: ghcr.io/vbomfim/openasr:base.en
     ports:
       - "9090:9090"
     environment:
