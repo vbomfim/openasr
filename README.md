@@ -2,6 +2,15 @@
 
 A production-grade, memory-efficient C++20 WebSocket server for real-time audio transcription, powered by [whisper.cpp](https://github.com/ggerganov/whisper.cpp). The protocol is aligned with Azure Cognitive Services Speech-to-Text conventions.
 
+## Inference Runtime
+
+**[whisper.cpp](https://github.com/ggerganov/whisper.cpp)** — a high-performance C/C++ implementation of OpenAI's Whisper speech recognition model, using the [GGML](https://github.com/ggerganov/ggml) tensor library.
+
+- Pure C/C++ — no Python, no PyTorch, no ONNX
+- CPU optimized (AVX, AVX2, NEON) with optional GPU acceleration (CUDA, Vulkan, Metal)
+- Uses GGML quantized model format for reduced memory and faster inference
+- Model loaded once at startup, shared across all concurrent sessions
+
 ## Features
 
 - **Embedded Whisper inference** — pure C++, no Python dependencies
@@ -372,26 +381,60 @@ HTTP-level errors (before WebSocket upgrade):
 
 **Model memory:** whisper.cpp models are loaded once and shared across all sessions.
 
-| Model | Size | RAM (approx) | CPU Latency (5s window) | Quality |
-|-------|------|-------------|------------------------|---------|
-| tiny.en | 75 MB | ~200 MB | ~1s | Basic |
-| base.en | 142 MB | ~350 MB | ~3s | Good |
-| small.en | 466 MB | ~1 GB | ~8s | Better |
-| medium.en | 1.5 GB | ~2.5 GB | ~20s | High |
-| large-v3 | 3 GB | ~5 GB | ~50s | Best |
+### Compatible Models
+
+All models are downloaded from **[ggerganov/whisper.cpp on Hugging Face](https://huggingface.co/ggerganov/whisper.cpp/tree/main)** in GGML format.
+
+#### Standard models
+
+| Model | File | Size | RAM | CPU Latency¹ | Languages | Download |
+|-------|------|------|-----|-------------|-----------|----------|
+| Tiny (EN) | `ggml-tiny.en.bin` | 75 MB | ~200 MB | ~1s | English | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin) |
+| Tiny | `ggml-tiny.bin` | 75 MB | ~200 MB | ~1s | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin) |
+| Base (EN) | `ggml-base.en.bin` | 142 MB | ~350 MB | ~3s | English | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin) |
+| Base | `ggml-base.bin` | 142 MB | ~350 MB | ~3s | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin) |
+| Small (EN) | `ggml-small.en.bin` | 466 MB | ~1 GB | ~8s | English | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin) |
+| Small | `ggml-small.bin` | 466 MB | ~1 GB | ~8s | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin) |
+| Medium (EN) | `ggml-medium.en.bin` | 1.5 GB | ~2.5 GB | ~20s | English | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin) |
+| Medium | `ggml-medium.bin` | 1.5 GB | ~2.5 GB | ~20s | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin) |
+| Large v3 | `ggml-large-v3.bin` | 3 GB | ~5 GB | ~50s | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin) |
+| Large v3 Turbo | `ggml-large-v3-turbo.bin` | 1.6 GB | ~3 GB | ~15s | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin) |
+
+¹ *Approximate CPU latency for a 5-second audio window on a 12-core ARM CPU. GPU (CUDA) is 10–50× faster.*
+
+#### Quantized models (smaller, faster, slightly lower accuracy)
+
+Quantized variants use less RAM and run faster with minimal quality loss:
+
+| Quantization | Size reduction | Example |
+|-------------|---------------|---------|
+| Q8_0 | ~50% smaller | `ggml-large-v3-turbo-q8_0.bin` [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin) |
+| Q5_0 | ~65% smaller | `ggml-large-v3-q5_0.bin` [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin) |
+
+Browse all available models: **[huggingface.co/ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp/tree/main)**
+
+#### Special models
+
+| Model | Description | Download |
+|-------|-------------|----------|
+| `ggml-small.en-tdrz.bin` | Small English + speaker diarization (tinydiarize) | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-tdrz.bin) |
 
 ### Changing Models
 
-**1. Download a model** from [Hugging Face](https://huggingface.co/ggerganov/whisper.cpp/tree/main):
+**1. Download a model:**
 
 ```bash
-# English-only models (faster, recommended for English)
+# English-only (faster, recommended for English)
 curl -L -o models/ggml-base.en.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
 
-# Multilingual models (supports 99 languages)
-curl -L -o models/ggml-large-v3.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin
+# Multilingual (supports 99 languages)
+curl -L -o models/ggml-large-v3-turbo.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
+
+# Quantized (smaller + faster, good for production)
+curl -L -o models/ggml-large-v3-turbo-q8_0.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin
 ```
 
 **2. Set the model path** and restart:
@@ -400,17 +443,17 @@ curl -L -o models/ggml-large-v3.bin \
 # Docker
 docker run -e WHISPER_MODEL_PATH=/models/ggml-base.en.bin ...
 
-# Kubernetes — update the env var
+# Kubernetes
 kubectl -n whisperx set env deployment/whisperx-server \
   WHISPER_MODEL_PATH=/models/ggml-base.en.bin
 kubectl -n whisperx rollout restart deployment whisperx-server
 
-# Or in server.toml
+# server.toml
 [model]
 path = "/models/ggml-base.en.bin"
 ```
 
-**Available models:** `tiny`, `tiny.en`, `base`, `base.en`, `small`, `small.en`, `medium`, `medium.en`, `large-v1`, `large-v2`, `large-v3`. Models ending in `.en` are English-only and faster. The server loads one model at startup — switching models requires a restart.
+The server loads one model at startup. Switching models requires a restart. `.en` models are English-only and faster.
 
 ---
 
