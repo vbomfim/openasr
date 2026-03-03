@@ -27,35 +27,26 @@ RUN mkdir -p build && cd build && \
       -DGGML_FP16_VA=OFF && \
     cmake --build . -j$(nproc)
 
-# ---- Runtime stage ----
-FROM ubuntu:24.04 AS runtime
+# Collect shared library dependencies for distroless
+RUN mkdir -p /runtime-libs && \
+    ldd /build/build/transcription_server | \
+    grep "=> /" | awk '{print $3}' | \
+    xargs -I{} cp --parents {} /runtime-libs/ && \
+    cp --parents /lib/*/ld-linux-* /runtime-libs/ 2>/dev/null || true
 
-# Security: run as non-root
-RUN groupadd --system wss && useradd --system --gid wss --no-create-home wss
+# ---- Runtime stage (distroless) ----
+FROM gcr.io/distroless/cc-debian12:nonroot
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libopus0 \
-    libsamplerate0 \
-    libgomp1 \
-    zlib1g \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy binary and default config
+# Copy binary
 COPY --from=builder /build/build/transcription_server /usr/local/bin/transcription_server
+
+# Copy shared libraries not in distroless base
+COPY --from=builder /runtime-libs/ /
+
+# Copy default config
 COPY --from=builder /build/config/server.toml /etc/whisperx/server.toml
 
-# Models directory (mount at runtime)
-RUN mkdir -p /models && chown wss:wss /models
-VOLUME ["/models"]
-
-# Drop privileges
-USER wss
-
 EXPOSE 9090
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -sf http://localhost:9090/health || exit 1
 
 ENV WSS_CONFIG_PATH=/etc/whisperx/server.toml
 
