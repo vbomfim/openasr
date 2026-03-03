@@ -48,7 +48,7 @@ jobs:
           fi
 
       - name: Build and push slim image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
@@ -123,7 +123,7 @@ jobs:
           DOCKERFILE
 
       - name: Build and push model image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile.with-model
