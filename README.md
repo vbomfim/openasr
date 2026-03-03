@@ -24,28 +24,69 @@ A production-grade, memory-efficient C++20 WebSocket server for real-time audio 
 
 ## Quick Start
 
-### Docker
+### Pre-built Docker Images (recommended)
+
+Pre-built images are available with popular models embedded — no downloads or volume mounts needed:
 
 ```bash
-# Build the image
-docker build -t openasr -f docker/Dockerfile .
+# Just run — model is included in the image
+docker run -p 9090:9090 -e WSS_API_KEY=your-secret-key \
+  openasr/server:base.en
+```
 
-# Run with a model (download from https://huggingface.co/ggerganov/whisper.cpp)
+| Image tag | Model | Image size | Best for |
+|-----------|-------|-----------|----------|
+| `openasr/server:tiny.en` | Whisper tiny (English) | ~140 MB | Development, testing |
+| `openasr/server:base.en` | Whisper base (English) | ~210 MB | Low-latency production |
+| `openasr/server:large-v3-turbo` | Whisper large v3 turbo | ~1.7 GB | Best speed/quality balance |
+| `openasr/server:large-v3` | Whisper large v3 | ~3.1 GB | Maximum accuracy |
+| `openasr/server:latest` | No model (bring your own) | ~63 MB | Production K8s with external model storage |
+
+### Docker with Your Own Model
+
+Use the slim `latest` image and mount your model as a volume:
+
+```bash
+# Download a model
+curl -L -o models/ggml-base.en.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+
+# Run with volume mount
 docker run -p 9090:9090 \
-  -v /path/to/models:/models \
-  -e WHISPER_MODEL_PATH=/models/ggml-large-v3.bin \
+  -v $(pwd)/models:/models \
+  -e WHISPER_MODEL_PATH=/models/ggml-base.en.bin \
   -e WSS_API_KEY=your-secret-key \
-  openasr
+  openasr/server:latest
+```
+
+### Docker Compose
+
+```yaml
+services:
+  openasr:
+    image: openasr/server:base.en
+    ports:
+      - "9090:9090"
+    environment:
+      - WSS_API_KEY=your-secret-key
+      - WSS_INFERENCE_THREADS=4
+      - WSS_MAX_SESSIONS=10
 ```
 
 ### From Source
 
 ```bash
+# Build
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . -j$(nproc)
 
-WHISPER_MODEL_PATH=/path/to/ggml-large-v3.bin ./transcription_server
+# Download a model
+curl -L -o models/ggml-base.en.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+
+# Run
+WHISPER_MODEL_PATH=models/ggml-base.en.bin ./transcription_server
 ```
 
 ---
