@@ -6,6 +6,12 @@ add_executable(openasr_tests
     test_validator.cpp
     test_object_pool.cpp
     test_result_aggregator.cpp
+    test_resampler.cpp
+    test_audio_pipeline.cpp
+    test_session_manager.cpp
+    test_session.cpp
+    test_config.cpp
+    test_connection.cpp
 )
 
 target_include_directories(openasr_tests PRIVATE
@@ -22,11 +28,21 @@ get_target_property(_json_inc nlohmann_json::nlohmann_json INTERFACE_INCLUDE_DIR
 if(_json_inc)
     target_include_directories(openasr_tests SYSTEM PRIVATE ${_json_inc})
 endif()
+get_target_property(_toml_inc tomlplusplus::tomlplusplus INTERFACE_INCLUDE_DIRECTORIES)
+if(_toml_inc)
+    target_include_directories(openasr_tests SYSTEM PRIVATE ${_toml_inc})
+endif()
+get_target_property(_whisper_inc whisper INTERFACE_INCLUDE_DIRECTORIES)
+if(_whisper_inc)
+    target_include_directories(openasr_tests SYSTEM PRIVATE ${_whisper_inc})
+endif()
 
 target_link_libraries(openasr_tests PRIVATE
     GTest::gtest_main
     nlohmann_json::nlohmann_json
     spdlog::spdlog
+    tomlplusplus::tomlplusplus
+    whisper
 )
 
 # Link opus and samplerate for audio tests
