@@ -110,13 +110,70 @@ ws://host:9090/transcribe
 
 Every WebSocket connection must be authenticated (unless `WSS_API_KEY` is unset for dev mode).
 
-| Method | Example |
-|--------|---------|
-| **Bearer token** | `Authorization: Bearer your-api-key` header on WebSocket upgrade |
+#### Generating an API key
+
+The API key is any string you choose — there is no specific format or token service. Use a cryptographically random string of at least 32 characters:
+
+```bash
+# Generate a secure random key
+openssl rand -hex 32
+# Example output: a3f1b9c7e8d2f4a6b0c5e7d9f1a3b5c7e9d1f3a5b7c9e1d3f5a7b9c1e3d5f7
+
+# Or using Python
+python3 -c "import secrets; print(secrets.token_hex(32))"
+```
+
+#### Configuring the server
+
+Set the key as an environment variable when starting the server:
+
+```bash
+# Docker
+docker run -e WSS_API_KEY=a3f1b9c7e8d2f4a6b0c5e7d9f1a3b5c7... ghcr.io/vbomfim/openasr:base.en
+
+# Kubernetes (use a Secret, not a ConfigMap)
+kubectl create secret generic openasr-api-key \
+  --from-literal=WSS_API_KEY=a3f1b9c7e8d2f4a6b0c5e7d9f1a3b5c7... \
+  -n whisperx
+```
+
+In production, set `WSS_REQUIRE_AUTH=true` to prevent accidental startup without a key.
+
+#### Connecting with the key
+
+Pass the key in the `Authorization` header when opening the WebSocket connection:
+
+```
+Authorization: Bearer a3f1b9c7e8d2f4a6b0c5e7d9f1a3b5c7...
+```
+
+```python
+# Python
+headers = {"Authorization": f"Bearer {api_key}"}
+async with websockets.connect("ws://host:9090/transcribe",
+                               additional_headers=headers) as ws:
+    ...
+```
+
+```javascript
+// JavaScript
+const ws = new WebSocket("ws://host:9090/transcribe", {
+  headers: { "Authorization": `Bearer ${apiKey}` }
+});
+```
+
+```bash
+# curl (for testing WebSocket upgrade)
+curl -H "Authorization: Bearer $API_KEY" \
+  -H "Upgrade: websocket" -H "Connection: Upgrade" \
+  -H "Sec-WebSocket-Key: $(openssl rand -base64 16)" \
+  -H "Sec-WebSocket-Version: 13" \
+  http://localhost:9090/transcribe
+```
 
 Query string authentication is **not supported** — API keys in URLs are logged by proxies and intermediaries.
 
-Unauthenticated connections receive `HTTP 401 Unauthorized` before the WebSocket handshake completes.
+Unauthenticated or invalid connections receive `HTTP 401 Unauthorized` before the WebSocket handshake completes.
 
 ### Connection Flow
 
