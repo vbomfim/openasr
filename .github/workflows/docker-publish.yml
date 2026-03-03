@@ -1,0 +1,137 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      push:
+        description: 'Push images to Docker Hub'
+        type: boolean
+        default: false
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: openasr/server
+
+jobs:
+  build-slim:
+    name: Build slim image (no model)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        if: github.event_name == 'push' || inputs.push
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+            echo "is_release=true" >> $GITHUB_OUTPUT
+          else
+            echo "version=dev" >> $GITHUB_OUTPUT
+            echo "is_release=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and push slim image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'push' || inputs.push }}
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:slim
+            ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-with-model:
+    name: Build ${{ matrix.model }} image
+    needs: build-slim
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - model: tiny.en
+            file: ggml-tiny.en.bin
+            url: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
+          - model: base.en
+            file: ggml-base.en.bin
+            url: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+          - model: large-v3-turbo
+            file: ggml-large-v3-turbo.bin
+            url: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
+          - model: large-v3
+            file: ggml-large-v3.bin
+            url: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        if: github.event_name == 'push' || inputs.push
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          else
+            echo "version=dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create model Dockerfile
+        run: |
+          cat > Dockerfile.with-model << 'DOCKERFILE'
+          FROM openasr/server:${{ steps.version.outputs.version }} AS base
+          FROM ubuntu:24.04 AS downloader
+          RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+          ARG MODEL_URL
+          ARG MODEL_FILE
+          RUN mkdir -p /models && curl -L -o /models/${MODEL_FILE} ${MODEL_URL}
+          FROM base
+          COPY --from=downloader /models /models
+          ENV WHISPER_MODEL_PATH=/models/${MODEL_FILE}
+          DOCKERFILE
+
+      - name: Build and push model image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.with-model
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'push' || inputs.push }}
+          build-args: |
+            MODEL_URL=${{ matrix.url }}
+            MODEL_FILE=${{ matrix.file }}
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ matrix.model }}
+            ${{ env.IMAGE_NAME }}:${{ matrix.model }}-${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
