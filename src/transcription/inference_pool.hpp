@@ -1,9 +1,11 @@
 #pragma once
 
 #include "transcription/backend_interface.hpp"
+#include "metrics/metrics.hpp"
 #include "common.hpp"
 #include <spdlog/spdlog.h>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <functional>
 #include <mutex>
@@ -53,9 +55,11 @@ public:
             if (queue_.size() >= max_queue_size_) {
                 spdlog::warn("Inference queue full ({} jobs), dropping job for session={}",
                     queue_.size(), job.session_id);
+                metrics::Metrics::instance().inference_jobs_dropped_total.Increment();
                 return;
             }
             queue_.push(std::move(job));
+            metrics::Metrics::instance().inference_queue_depth.Set(static_cast<double>(queue_.size()));
         }
         cv_.notify_one();
     }
@@ -94,15 +98,20 @@ private:
                 if (!running_ && queue_.empty()) return;
                 job = std::move(queue_.front());
                 queue_.pop();
+                metrics::Metrics::instance().inference_queue_depth.Set(static_cast<double>(queue_.size()));
             }
 
             // Run inference
             spdlog::info("Inference starting: session={} samples={} window_start={}ms",
                 job.session_id, job.audio.size(), job.window_start_ms);
+            auto t_start = std::chrono::steady_clock::now();
             auto result = backend_.transcribe(
                 job.audio.data(), job.audio.size(), job.window_start_ms);
-            spdlog::info("Inference done: session={} segments={}",
-                job.session_id, result.segments.size());
+            auto t_end = std::chrono::steady_clock::now();
+            double duration_s = std::chrono::duration<double>(t_end - t_start).count();
+            metrics::Metrics::instance().inference_duration_seconds.Observe(duration_s);
+            spdlog::info("Inference done: session={} segments={} duration={:.3f}s",
+                job.session_id, result.segments.size(), duration_s);
 
             // Deliver result
             if (job.on_complete) {

@@ -6,6 +6,8 @@
 #include "aggregation/result_aggregator.hpp"
 #include "protocol/messages.hpp"
 #include "protocol/validator.hpp"
+#include "metrics/metrics.hpp"
+#include <prometheus/text_serializer.h>
 #include <App.h>
 #include <spdlog/spdlog.h>
 #include <string>
@@ -122,6 +124,16 @@ public:
             }
         });
 
+        app.get("/metrics", [this](uWS::HttpResponse<false>* res, uWS::HttpRequest* /*req*/) {
+            (void)this;
+            auto registry = metrics::Metrics::instance().registry();
+            prometheus::TextSerializer serializer;
+            auto collected = registry->Collect();
+            auto output = serializer.Serialize(collected);
+            res->writeHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+            res->end(output);
+        });
+
         app.ws<ConnectionData>("/transcribe", {
             .compression = uWS::DISABLED,
             .maxPayloadLength = 16 * 1024 * 1024,
@@ -139,6 +151,7 @@ public:
                 }
 
                 if (!authenticated) {
+                    metrics::Metrics::instance().connections_rejected_auth.Increment();
                     res->writeStatus("401 Unauthorized");
                     res->end("Invalid or missing API key. Use Authorization: Bearer <key> header.");
                     return;
@@ -154,12 +167,15 @@ public:
             },
 
             .open = [this](auto* ws) {
+                metrics::Metrics::instance().connections_total.Increment();
                 if (active_connections_.fetch_add(1) >= kMaxConnections) {
                     active_connections_.fetch_sub(1);
+                    metrics::Metrics::instance().connections_rejected_limit.Increment();
                     ws->close();
                     spdlog::warn("Connection rejected: max connections ({}) reached", kMaxConnections);
                     return;
                 }
+                metrics::Metrics::instance().active_connections.Increment();
                 spdlog::info("Client connected ({} active)", active_connections_.load());
                 auto* data = ws->getUserData();
                 data->state = ConnectionState::CONNECTED;
@@ -171,6 +187,7 @@ public:
 
             .close = [this](auto* ws, int code, std::string_view message) {
                 active_connections_.fetch_sub(1);
+                metrics::Metrics::instance().active_connections.Decrement();
                 auto* data = ws->getUserData();
                 spdlog::info("Client disconnected: session={} code={} reason={}",
                     data->session_id, code, message);
@@ -196,6 +213,8 @@ public:
                     }
                     ws->unsubscribe(data->session_id);
                     session_mgr_.destroy_session(data->session_id);
+                    metrics::Metrics::instance().sessions_destroyed_total.Increment();
+                    metrics::Metrics::instance().active_sessions.Decrement();
                 }
                 data->state = ConnectionState::CLOSED;
             }
@@ -349,6 +368,9 @@ private:
             return;
         }
 
+        metrics::Metrics::instance().sessions_created_total.Increment();
+        metrics::Metrics::instance().active_sessions.Increment();
+
         // Restore from checkpoint if resuming
         if (config.resume_checkpoint) {
             session->restore_from_checkpoint(*config.resume_checkpoint);
@@ -396,6 +418,9 @@ private:
             return;
         }
 
+        metrics::Metrics::instance().audio_bytes_received_total.Increment(static_cast<double>(data.size()));
+        metrics::Metrics::instance().audio_chunks_received_total.Increment();
+
         spdlog::debug("Binary ingested: session={} bytes={} written={} ring_total={} window_sz={} window_ready={}",
             conn->session_id, data.size(), written,
             session->ring_buffer_total_written(),
@@ -405,6 +430,7 @@ private:
         // Check ring buffer fill level and send BACKPRESSURE if needed
         float fill = session->ring_buffer_fill_ratio();
         if (fill > 0.8f && !conn->backpressure_sent) {
+            metrics::Metrics::instance().backpressure_events_total.Increment();
             send_to_session(conn->session_id,
                 protocol::make_speech_backpressure(conn->session_id, "slow_down"));
             conn->backpressure_sent = true;
@@ -435,6 +461,7 @@ private:
             };
 
             inference_pool_.submit(std::move(job));
+            metrics::Metrics::instance().inference_jobs_submitted_total.Increment();
             spdlog::debug("Inference job submitted: session={} window=[{}ms, {}ms]",
                 conn->session_id, window.start_ms, window.end_ms);
         }
@@ -443,6 +470,11 @@ private:
     void on_inference_complete(const std::string& session_id,
                                transcription::TranscriptionResult result,
                                int64_t window_start_ms, int64_t window_end_ms) {
+        metrics::Metrics::instance().inference_jobs_completed_total.Increment();
+        metrics::Metrics::instance().inference_queue_depth.Decrement();
+        metrics::Metrics::instance().transcription_segments_total.Increment(
+            static_cast<double>(result.segments.size()));
+
         auto* session = session_mgr_.get_session(session_id);
         if (!session) return;
 
@@ -533,11 +565,14 @@ private:
 
         ws->unsubscribe(conn->session_id);
         session_mgr_.destroy_session(conn->session_id);
+        metrics::Metrics::instance().sessions_destroyed_total.Increment();
+        metrics::Metrics::instance().active_sessions.Decrement();
         conn->state = ConnectionState::CLOSED;
     }
 
     void send_error(WebSocket* ws, const std::string& session_id,
                     const std::string& code, const std::string& message) {
+        metrics::Metrics::instance().errors_total.Increment();
         spdlog::warn("Error: session={} code={} msg={}", session_id, code, message);
         auto response = protocol::make_speech_error(session_id, code, message);
         ws->send(response, uWS::OpCode::TEXT);

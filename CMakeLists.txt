@@ -69,6 +69,19 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tomlplusplus)
 
+# --- prometheus-cpp ---
+FetchContent_Declare(
+    prometheus_cpp
+    GIT_REPOSITORY https://github.com/jupp0r/prometheus-cpp.git
+    GIT_TAG v1.3.0
+    GIT_SHALLOW TRUE
+)
+set(ENABLE_PUSH OFF CACHE BOOL "" FORCE)
+set(ENABLE_COMPRESSION OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(GENERATE_PKGCONFIG OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(prometheus_cpp)
+
 # --- libopus (system or FetchContent) ---
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
@@ -154,6 +167,10 @@ get_target_property(_whisper_inc whisper INTERFACE_INCLUDE_DIRECTORIES)
 if(_whisper_inc)
     target_include_directories(transcription_server SYSTEM PRIVATE ${_whisper_inc})
 endif()
+get_target_property(_prom_inc prometheus-cpp::core INTERFACE_INCLUDE_DIRECTORIES)
+if(_prom_inc)
+    target_include_directories(transcription_server SYSTEM PRIVATE ${_prom_inc})
+endif()
 
 # Apply hardened flags only to our code
 target_compile_options(transcription_server PRIVATE ${WSS_COMPILE_OPTIONS})
@@ -167,6 +184,7 @@ target_link_libraries(transcription_server PRIVATE
     nlohmann_json::nlohmann_json
     spdlog::spdlog
     tomlplusplus::tomlplusplus
+    prometheus-cpp::core
 )
 
 # Link opus
