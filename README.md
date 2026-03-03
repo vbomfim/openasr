@@ -1,5 +1,11 @@
 # OpenASR — Streaming Speech-to-Text Server
 
+[![Build & Push](https://github.com/vbomfim/openasr/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/vbomfim/openasr/actions/workflows/docker-publish.yml)
+[![CodeQL](https://github.com/vbomfim/openasr/actions/workflows/codeql.yml/badge.svg)](https://github.com/vbomfim/openasr/actions/workflows/codeql.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Coverage: 95.5%](https://img.shields.io/badge/coverage-95.5%25-brightgreen)](SECURITY.md#testing--verification)
+[![Tests: 214](https://img.shields.io/badge/tests-214%20passing-brightgreen)](SECURITY.md#testing--verification)
+
 A production-grade, memory-efficient C++20 WebSocket server for real-time audio transcription, powered by [whisper.cpp](https://github.com/ggerganov/whisper.cpp). The protocol is aligned with Azure Cognitive Services Speech-to-Text conventions.
 
 ## Inference Runtime
