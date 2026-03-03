@@ -1,0 +1,45 @@
+name: Bug Report
+description: Report a bug in OpenASR
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Thanks for reporting! Please fill in the details below."
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce this?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "OpenASR version or commit SHA"
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - Docker
+        - Kubernetes
+        - From source
+        - Other
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      render: shell
