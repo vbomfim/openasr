@@ -10,9 +10,9 @@ window_duration_ms = 20000
 overlap_duration_ms = 2000
 max_buffered_duration_ms = 60000
 
-# Whisper model
+# Whisper model (set via WHISPER_MODEL_PATH env var, or override here)
 [model]
-path = "/models/ggml-large-v3.bin"
+# path = "/models/ggml-large-v3.bin"
 language = "en"
 beam_size = 5
 
