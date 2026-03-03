@@ -99,7 +99,8 @@ inline void from_json(const nlohmann::json& j, SpeechConfigPayload& p) {
     j.at("encoding").get_to(p.encoding);
     j.at("window_duration_ms").get_to(p.window_duration_ms);
     j.at("overlap_duration_ms").get_to(p.overlap_duration_ms);
-    j.at("model_id").get_to(p.model_id);
+    // Optional fields
+    if (j.contains("model_id")) j.at("model_id").get_to(p.model_id);
     if (j.contains("resume_checkpoint") && !j["resume_checkpoint"].is_null()) {
         p.resume_checkpoint = j["resume_checkpoint"].get<CheckpointData>();
     }
