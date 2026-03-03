@@ -110,7 +110,7 @@ jobs:
 
       - name: Create model Dockerfile
         run: |
-          cat > Dockerfile.with-model << 'DOCKERFILE'
+          cat > Dockerfile.with-model << 'EOF'
           FROM ghcr.io/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }} AS base
           FROM ubuntu:24.04 AS downloader
           RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
@@ -118,10 +118,9 @@ jobs:
           ARG MODEL_FILE
           RUN mkdir -p /models && curl -L -o /models/${MODEL_FILE} ${MODEL_URL}
           FROM base
-          ARG MODEL_FILE
           COPY --from=downloader /models /models
-          ENV WHISPER_MODEL_PATH=/models/${MODEL_FILE}
-          DOCKERFILE
+          EOF
+          echo "ENV WHISPER_MODEL_PATH=/models/${{ matrix.file }}" >> Dockerfile.with-model
 
       - name: Build and push model image
         uses: docker/build-push-action@v6
