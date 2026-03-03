@@ -118,6 +118,7 @@ jobs:
           ARG MODEL_FILE
           RUN mkdir -p /models && curl -L -o /models/${MODEL_FILE} ${MODEL_URL}
           FROM base
+          ARG MODEL_FILE
           COPY --from=downloader /models /models
           ENV WHISPER_MODEL_PATH=/models/${MODEL_FILE}
           DOCKERFILE
