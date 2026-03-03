@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "audio/audio_pipeline.hpp"
+#include <opus.h>
 #include <cmath>
 #include <cstring>
 #include <vector>
@@ -91,4 +92,39 @@ TEST(AudioPipeline, RingBuffer_Accessor_ReturnsRef) {
     AudioPipeline p(16000);
     const auto& rb = p.ring_buffer();
     EXPECT_EQ(rb.capacity(), static_cast<size_t>(16000 * 30)); // default 30s
+}
+
+// T9-10: Opus without init returns zero
+TEST(AudioPipeline, IngestOpus_WithoutInit_ReturnsZero) {
+    AudioPipeline p(48000);
+    uint8_t fake_data[] = {0x00, 0x01, 0x02};
+    EXPECT_EQ(p.ingest_opus(fake_data, 3), 0u);
+}
+
+// T9-11: Opus with garbage data throws
+TEST(AudioPipeline, IngestOpus_AfterInit_WithBadData_Throws) {
+    AudioPipeline p(48000);
+    p.init_opus(48000);
+    EXPECT_TRUE(p.has_opus());
+    uint8_t garbage[] = {0xFF, 0xFF, 0xFF, 0xFF};
+    EXPECT_THROW(p.ingest_opus(garbage, 4), std::runtime_error);
+}
+
+// T9-12: Opus with valid encoded packet
+TEST(AudioPipeline, IngestOpus_ValidPacket_WritesToRingBuffer) {
+    int error;
+    OpusEncoder* enc = opus_encoder_create(48000, 1, OPUS_APPLICATION_VOIP, &error);
+    ASSERT_EQ(error, OPUS_OK);
+
+    std::vector<int16_t> pcm(960, 0); // 20ms at 48kHz
+    uint8_t opus_packet[1000];
+    int packet_len = opus_encode(enc, pcm.data(), 960, opus_packet, 1000);
+    ASSERT_GT(packet_len, 0);
+    opus_encoder_destroy(enc);
+
+    AudioPipeline p(48000);
+    p.init_opus(48000);
+    size_t written = p.ingest_opus(opus_packet, static_cast<size_t>(packet_len));
+    EXPECT_GT(written, 0u);
+    EXPECT_GT(p.ring_buffer().total_written(), 0u);
 }

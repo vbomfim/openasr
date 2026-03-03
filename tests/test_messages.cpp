@@ -228,3 +228,31 @@ TEST(MessagesTest, MakeSpeechPhrase_CorrectFormat) {
     EXPECT_FLOAT_EQ(parsed["payload"]["confidence"].get<float>(), 0.99f);
     EXPECT_EQ(parsed["payload"]["status"], "Success");
 }
+
+TEST(MessagesTest, MakeSpeechBackpressure_CorrectFormat) {
+    auto msg = make_speech_backpressure("sid", "slow_down");
+    auto j = json::parse(msg);
+    EXPECT_EQ(j["type"], "speech.backpressure");
+    EXPECT_EQ(j["payload"]["action"], "slow_down");
+}
+
+TEST(MessagesTest, MakeSpeechCheckpoint_CorrectFormat) {
+    CheckpointData cp;
+    cp.session_id = "s1";
+    cp.last_audio_ms = 5000;
+    cp.full_transcript = "hello";
+    auto msg = make_speech_checkpoint("s1", cp);
+    auto j = json::parse(msg);
+    EXPECT_EQ(j["type"], "speech.checkpoint");
+    EXPECT_EQ(j["payload"]["last_audio_ms"], 5000);
+}
+
+TEST(MessagesTest, MakeSpeechConfigAck_CorrectFormat) {
+    SpeechConfigAckPayload ack;
+    ack.session_id = "sid-5";
+    ack.effective_config.language = "pt";
+    auto msg = make_speech_config_ack("sid-5", ack);
+    auto j = json::parse(msg);
+    EXPECT_EQ(j["type"], "speech.config.ack");
+    EXPECT_EQ(j["session_id"], "sid-5");
+}

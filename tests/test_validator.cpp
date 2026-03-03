@@ -182,3 +182,68 @@ TEST(ValidatorTest, SpeechConfig_ModelId_TooLong_Fails) {
     cfg["model_id"] = std::string(129, 'm'); // 129 chars > 128 max
     EXPECT_FALSE(validate_speech_config(cfg).valid);
 }
+
+// ========== Missing-field and wrong-type checks ==========
+
+TEST(ValidatorTest, SpeechConfig_MissingSampleRate_Fails) {
+    auto p = valid_config();
+    p.erase("sample_rate");
+    auto r = validate_speech_config(p);
+    EXPECT_FALSE(r.valid);
+}
+
+TEST(ValidatorTest, SpeechConfig_SampleRateNotInt_Fails) {
+    auto p = valid_config();
+    p["sample_rate"] = "not_a_number";
+    auto r = validate_speech_config(p);
+    EXPECT_FALSE(r.valid);
+}
+
+TEST(ValidatorTest, SpeechConfig_MissingEncoding_Fails) {
+    auto p = valid_config();
+    p.erase("encoding");
+    auto r = validate_speech_config(p);
+    EXPECT_FALSE(r.valid);
+}
+
+TEST(ValidatorTest, SpeechConfig_EncodingNotString_Fails) {
+    auto p = valid_config();
+    p["encoding"] = 42;
+    auto r = validate_speech_config(p);
+    EXPECT_FALSE(r.valid);
+}
+
+TEST(ValidatorTest, SpeechConfig_MissingWindowDuration_Fails) {
+    auto p = valid_config();
+    p.erase("window_duration_ms");
+    auto r = validate_speech_config(p);
+    EXPECT_FALSE(r.valid);
+}
+
+TEST(ValidatorTest, SpeechConfig_MissingOverlap_Fails) {
+    auto p = valid_config();
+    p.erase("overlap_duration_ms");
+    auto r = validate_speech_config(p);
+    EXPECT_FALSE(r.valid);
+}
+
+TEST(ValidatorTest, SpeechConfig_ResumeCheckpointInvalid_Fails) {
+    auto p = valid_config();
+    p["resume_checkpoint"] = "not_an_object";
+    auto r = validate_speech_config(p);
+    EXPECT_FALSE(r.valid);
+}
+
+TEST(ValidatorTest, SpeechConfig_ResumeCheckpointNull_Passes) {
+    auto p = valid_config();
+    p["resume_checkpoint"] = nullptr;
+    auto r = validate_speech_config(p);
+    EXPECT_TRUE(r.valid);
+}
+
+TEST(ValidatorTest, SpeechConfig_EncodingTooLong_Fails) {
+    auto p = valid_config();
+    p["encoding"] = std::string(33, 'x');
+    auto r = validate_speech_config(p);
+    EXPECT_FALSE(r.valid);
+}

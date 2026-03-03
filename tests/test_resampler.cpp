@@ -108,3 +108,12 @@ TEST(Resampler, Ratio_Correct) {
     double expected = 16000.0 / 48000.0;
     EXPECT_DOUBLE_EQ(r.ratio(), expected);
 }
+
+// T8-13: Large input forces output buffer resize beyond default 4096
+TEST(Resampler, Process_LargeInput_ResizesBuffer) {
+    Resampler r(48000, 16000);
+    std::vector<float> input(50000, 0.5f);
+    auto result = r.process(input.data(), input.size());
+    EXPECT_GT(result.count, 0u);
+    EXPECT_NEAR(static_cast<double>(result.count), 50000.0 / 3.0, 500.0);
+}

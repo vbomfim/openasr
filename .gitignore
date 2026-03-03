@@ -36,3 +36,4 @@ third_party/whisper.cpp/build/
 
 # Logs
 *.log
+build-cov/
