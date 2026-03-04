@@ -1,0 +1,55 @@
+# ---- Build stage (CUDA) ----
+FROM nvidia/cuda:12.6.0-devel-ubuntu24.04 AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    git \
+    pkg-config \
+    libopus-dev \
+    libsamplerate0-dev \
+    zlib1g-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY . .
+
+RUN git submodule update --init --recursive || true
+
+RUN mkdir -p build && cd build && \
+    cmake .. \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+      -DWHISPER_BUILD_TESTS=OFF \
+      -DWHISPER_BUILD_EXAMPLES=OFF \
+      -DGGML_CUDA=ON \
+      -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89;90" && \
+    cmake --build . -j$(nproc)
+
+# ---- Runtime stage (CUDA) ----
+FROM nvidia/cuda:12.6.0-runtime-ubuntu24.04 AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libopus0 \
+    libsamplerate0 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --gid 65532 nonroot && \
+    useradd --uid 65532 --gid 65532 --shell /bin/false nonroot
+
+# Copy binary
+COPY --from=builder /build/build/transcription_server /usr/local/bin/transcription_server
+
+# Copy default config
+COPY --from=builder /build/config/server.toml /etc/whisperx/server.toml
+
+EXPOSE 9090
+
+ENV WSS_CONFIG_PATH=/etc/whisperx/server.toml
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+USER nonroot
+
+ENTRYPOINT ["transcription_server"]
