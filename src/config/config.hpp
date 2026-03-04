@@ -44,6 +44,7 @@ struct ServerConfig {
 
     // Logging
     std::string log_level = "info";
+    std::string log_format = "text"; // "text" (default) or "json"
 
     // Authentication
     std::string api_key; // if empty, auth is disabled (dev mode)
@@ -65,6 +66,7 @@ struct ServerConfig {
         if (auto* v = std::getenv("WSS_IO_THREADS"))         cfg.io_threads = safe_atoi(v, cfg.io_threads);
         if (auto* v = std::getenv("WSS_INFERENCE_THREADS"))  cfg.inference_threads = safe_atoi(v, cfg.inference_threads);
         if (auto* v = std::getenv("WSS_LOG_LEVEL"))          cfg.log_level = v;
+        if (auto* v = std::getenv("WSS_LOG_FORMAT"))         cfg.log_format = v;
         if (auto* v = std::getenv("WSS_API_KEY"))            cfg.api_key = v;
         if (auto* v = std::getenv("WSS_REQUIRE_AUTH")) {
             cfg.require_auth = (std::string(v) == "true" || std::string(v) == "1");
@@ -116,6 +118,8 @@ struct ServerConfig {
                 // [logging]
                 if (auto v = tbl["logging"]["level"].value<std::string>())
                     cfg.log_level = *v;
+                if (auto v = tbl["logging"]["format"].value<std::string>())
+                    cfg.log_format = *v;
 
             } catch (const toml::parse_error& err) {
                 spdlog::error("Failed to parse {}: {}", path, err.description());
@@ -138,6 +142,7 @@ struct ServerConfig {
         if (auto* v = std::getenv("WSS_IO_THREADS"))         cfg.io_threads = safe_atoi(v, cfg.io_threads);
         if (auto* v = std::getenv("WSS_INFERENCE_THREADS"))  cfg.inference_threads = safe_atoi(v, cfg.inference_threads);
         if (auto* v = std::getenv("WSS_LOG_LEVEL"))          cfg.log_level = v;
+        if (auto* v = std::getenv("WSS_LOG_FORMAT"))         cfg.log_format = v;
         if (auto* v = std::getenv("WSS_API_KEY"))            cfg.api_key = v;
         if (auto* v = std::getenv("WSS_REQUIRE_AUTH")) {
             cfg.require_auth = (std::string(v) == "true" || std::string(v) == "1");
