@@ -519,13 +519,18 @@ HTTP-level errors (before WebSocket upgrade):
 | Max session duration | 2 hours | Compile-time (`kMaxSessionDurationMs`) |
 | Inference threads | 4 | `WSS_INFERENCE_THREADS` |
 
-**Memory estimate per session:**
-- Audio ring buffer: ~1.9 MB (30s at 16 kHz, float32)
-- Inference scratch: ~1.9 MB (shared pool)
-- Transcript: up to 1 MB
-- Total: ~4 MB per session, ~80 MB for 20 concurrent sessions (excluding model)
+**Memory per session and model RAM:** _To be measured. See [benchmark tool](tools/benchmark.py) for running your own sizing tests._
 
-**Model memory:** whisper.cpp models are loaded once and shared across all sessions.
+**Measured inference latency** (5s audio window, 12-core ARM CPU, single session):
+
+| Model | Latency |
+|-------|---------|
+| tiny.en | ~1.1s |
+| base.en | ~2.4s |
+| small.en | ~8.1s |
+| large-v3 | ~50s |
+
+_Latency varies by hardware, concurrency, and audio content. GPU (CUDA) reduces latency 10–50×._
 
 ### Compatible Models
 
@@ -533,20 +538,18 @@ All models are downloaded from **[ggerganov/whisper.cpp on Hugging Face](https:/
 
 #### Standard models
 
-| Model | File | Size | RAM | CPU Latency¹ | Languages | Download |
-|-------|------|------|-----|-------------|-----------|----------|
-| Tiny (EN) | `ggml-tiny.en.bin` | 75 MB | ~200 MB | ~1s | English | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin) |
-| Tiny | `ggml-tiny.bin` | 75 MB | ~200 MB | ~1s | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin) |
-| Base (EN) | `ggml-base.en.bin` | 142 MB | ~350 MB | ~3s | English | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin) |
-| Base | `ggml-base.bin` | 142 MB | ~350 MB | ~3s | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin) |
-| Small (EN) | `ggml-small.en.bin` | 466 MB | ~1 GB | ~8s | English | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin) |
-| Small | `ggml-small.bin` | 466 MB | ~1 GB | ~8s | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin) |
-| Medium (EN) | `ggml-medium.en.bin` | 1.5 GB | ~2.5 GB | ~20s | English | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin) |
-| Medium | `ggml-medium.bin` | 1.5 GB | ~2.5 GB | ~20s | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin) |
-| Large v3 | `ggml-large-v3.bin` | 3 GB | ~5 GB | ~50s | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin) |
-| Large v3 Turbo | `ggml-large-v3-turbo.bin` | 1.6 GB | ~3 GB | ~15s | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin) |
-
-¹ *Approximate CPU latency for a 5-second audio window on a 12-core ARM CPU. GPU (CUDA) is 10–50× faster.*
+| Model | File | Size | Languages | Download |
+|-------|------|------|-----------|----------|
+| Tiny (EN) | `ggml-tiny.en.bin` | 75 MB | English | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin) |
+| Tiny | `ggml-tiny.bin` | 75 MB | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin) |
+| Base (EN) | `ggml-base.en.bin` | 142 MB | English | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin) |
+| Base | `ggml-base.bin` | 142 MB | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin) |
+| Small (EN) | `ggml-small.en.bin` | 466 MB | English | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin) |
+| Small | `ggml-small.bin` | 466 MB | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin) |
+| Medium (EN) | `ggml-medium.en.bin` | 1.5 GB | English | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin) |
+| Medium | `ggml-medium.bin` | 1.5 GB | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin) |
+| Large v3 | `ggml-large-v3.bin` | 3 GB | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin) |
+| Large v3 Turbo | `ggml-large-v3-turbo.bin` | 1.6 GB | 99 languages | [⬇](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin) |
 
 #### Quantized models (smaller, faster, slightly lower accuracy)
 
