@@ -61,8 +61,10 @@ public:
                              session::SessionManager& session_mgr,
                              transcription::InferencePool& inference_pool,
                              const std::string& api_key = "",
+                             int io_threads = 1,
                              TlsConfig tls = TlsConfig())
         : port_(port)
+        , io_thread_count_(std::max(1, io_threads))
         , session_mgr_(session_mgr)
         , inference_pool_(inference_pool)
         , api_key_(api_key)
@@ -73,23 +75,55 @@ public:
         }
     }
 
-    /// Stop the server from any thread (closes the listen socket via event loop).
+    /// Stop the server from any thread.
     void stop() {
         shutdown_requested_.store(true, std::memory_order_release);
-        if (loop_) {
-            loop_->defer([this]() {
-                if (listen_socket_) {
-                    us_listen_socket_close(0, listen_socket_);
-                    listen_socket_ = nullptr;
-                    spdlog::info("Listen socket closed, event loop will exit");
-                }
-            });
+        // Defer close on all event loops
+        std::lock_guard lock(apps_mutex_);
+        for (auto* loop : all_loops_) {
+            if (loop) {
+                loop->defer([this]() {
+                    std::lock_guard lock2(apps_mutex_);
+                    for (auto* ls : listen_sockets_) {
+                        if (ls) us_listen_socket_close(0, ls);
+                    }
+                    listen_sockets_.clear();
+                });
+                break; // one defer is enough — shutdown timer handles the rest
+            }
         }
     }
 
     void run() {
-        uWS::App app;
+        if (io_thread_count_ <= 1) {
+            // Single-threaded mode (original behavior)
+            run_single_threaded();
+        } else {
+            // Multi-threaded: N threads, each with own App + event loop
+            spdlog::info("Starting {} I/O threads", io_thread_count_);
+            run_multi_threaded();
+        }
+    }
 
+    /// Post a message to a session's client from any thread (thread-safe).
+    /// Publishes to all I/O thread apps so the correct one delivers it.
+    void send_to_session(const std::string& session_id, std::string message) {
+        std::lock_guard lock(apps_mutex_);
+        for (size_t i = 0; i < all_loops_.size(); ++i) {
+            auto* loop = all_loops_[i];
+            auto* app = all_apps_[i];
+            if (loop && app) {
+                loop->defer([app, session_id, msg = message]() {
+                    app->publish(session_id, msg, uWS::OpCode::TEXT);
+                });
+            }
+        }
+    }
+
+private:
+    using WebSocket = uWS::WebSocket<false, true, ConnectionData>;
+
+    void configure_app(uWS::App& app) {
         app.get("/health", [this](auto* res, auto* /*req*/) {
             nlohmann::json health;
             health["status"] = "ok";
@@ -219,49 +253,115 @@ public:
                 data->state = ConnectionState::CLOSED;
             }
         });
+    }
+
+    void run_single_threaded() {
+        uWS::App app;
+        configure_app(app);
 
         app.listen(port_, [this](auto* listen_socket) {
             if (listen_socket) {
-                listen_socket_ = listen_socket;
+                std::lock_guard lock(apps_mutex_);
+                listen_sockets_.push_back(listen_socket);
                 spdlog::info("Listening on port {}", port_);
             } else {
                 spdlog::error("Failed to listen on port {}", port_);
             }
         });
 
-        // Store pointer for use by send_to_session
         app_ = &app;
         loop_ = uWS::Loop::get();
+        {
+            std::lock_guard lock(apps_mutex_);
+            all_apps_.push_back(&app);
+            all_loops_.push_back(loop_);
+        }
 
-        // Periodically check for shutdown signal (every 1s)
-        auto* timer_loop = reinterpret_cast<struct us_loop_t*>(loop_);
+        setup_shutdown_timer(loop_);
+        app.run();
+    }
+
+    void run_multi_threaded() {
+        // Thread 0 runs on the main thread, threads 1..N-1 are spawned
+        for (int i = 1; i < io_thread_count_; ++i) {
+            io_threads_.emplace_back([this, i]() {
+                uWS::App app;
+                configure_app(app);
+
+                us_listen_socket_t* ls = nullptr;
+                app.listen(port_, [&ls, this, i](auto* listen_socket) {
+                    if (listen_socket) {
+                        ls = listen_socket;
+                        std::lock_guard lock(apps_mutex_);
+                        listen_sockets_.push_back(listen_socket);
+                        spdlog::info("I/O thread {} listening on port {}", i, port_);
+                    }
+                });
+
+                auto* loop = uWS::Loop::get();
+                {
+                    std::lock_guard lock(apps_mutex_);
+                    all_apps_.push_back(&app);
+                    all_loops_.push_back(loop);
+                }
+
+                setup_shutdown_timer(loop);
+                app.run();
+
+                spdlog::info("I/O thread {} exited", i);
+            });
+        }
+
+        // Thread 0 (main thread)
+        uWS::App app;
+        configure_app(app);
+
+        app.listen(port_, [this](auto* listen_socket) {
+            if (listen_socket) {
+                std::lock_guard lock(apps_mutex_);
+                listen_sockets_.push_back(listen_socket);
+                spdlog::info("I/O thread 0 listening on port {}", port_);
+            } else {
+                spdlog::error("Failed to listen on port {}", port_);
+            }
+        });
+
+        app_ = &app;
+        loop_ = uWS::Loop::get();
+        {
+            std::lock_guard lock(apps_mutex_);
+            all_apps_.push_back(&app);
+            all_loops_.push_back(loop_);
+        }
+
+        setup_shutdown_timer(loop_);
+        app.run();
+
+        // Wait for worker I/O threads
+        for (auto& t : io_threads_) {
+            if (t.joinable()) t.join();
+        }
+        spdlog::info("All I/O threads exited");
+    }
+
+    void setup_shutdown_timer(uWS::Loop* loop) {
+        auto* timer_loop = reinterpret_cast<struct us_loop_t*>(loop);
         struct us_timer_t* shutdown_timer = us_create_timer(timer_loop, 0, sizeof(WebSocketServer*));
         *static_cast<WebSocketServer**>(us_timer_ext(shutdown_timer)) = this;
         us_timer_set(shutdown_timer, [](struct us_timer_t* t) {
             auto* self = *static_cast<WebSocketServer**>(us_timer_ext(t));
             if (self->shutdown_requested_.load(std::memory_order_acquire)) {
-                if (self->listen_socket_) {
-                    us_listen_socket_close(0, self->listen_socket_);
-                    self->listen_socket_ = nullptr;
-                    spdlog::info("Shutdown: listen socket closed");
+                // Close ALL listen sockets across all threads
+                std::lock_guard lock(self->apps_mutex_);
+                for (auto* ls : self->listen_sockets_) {
+                    if (ls) us_listen_socket_close(0, ls);
                 }
+                self->listen_sockets_.clear();
+                spdlog::info("Shutdown: all listen sockets closed");
                 us_timer_close(t);
             }
         }, 1000, 1000);
-
-        app.run();
     }
-
-    /// Post a message to a session's client from any thread (thread-safe).
-    void send_to_session(const std::string& session_id, std::string message) {
-        if (!loop_ || !app_) return;
-        loop_->defer([this, session_id, msg = std::move(message)]() {
-            app_->publish(session_id, msg, uWS::OpCode::TEXT);
-        });
-    }
-
-private:
-    using WebSocket = uWS::WebSocket<false, true, ConnectionData>;
 
     void handle_message(WebSocket* ws, std::string_view message, uWS::OpCode opCode) {
         auto* conn = ws->getUserData();
@@ -577,11 +677,16 @@ private:
         ws->send(response, uWS::OpCode::TEXT);
     }
 
-    uWS::App* app_ = nullptr; // non-owning, lifetime managed by run()
-    uWS::Loop* loop_ = nullptr;
-    us_listen_socket_t* listen_socket_ = nullptr;
+    uWS::App* app_ = nullptr; // primary app (thread 0), non-owning
+    uWS::Loop* loop_ = nullptr; // primary loop (thread 0)
+    std::vector<uWS::Loop*> all_loops_; // all I/O thread loops for cross-thread publish
+    std::vector<uWS::App*> all_apps_; // all apps for cross-thread publish
+    std::mutex apps_mutex_;
+    std::vector<us_listen_socket_t*> listen_sockets_;
+    std::vector<std::thread> io_threads_;
     std::atomic<bool> shutdown_requested_{false};
     int port_;
+    int io_thread_count_ = 1;
     session::SessionManager& session_mgr_;
     transcription::InferencePool& inference_pool_;
     std::string api_key_;
