@@ -3,6 +3,7 @@
 #include "transcription/whisper_backend.hpp"
 #include "transcription/inference_pool.hpp"
 #include "config/config.hpp"
+#include "auth/jwt_validator.hpp"
 #include <spdlog/spdlog.h>
 #include <csignal>
 #include <atomic>
@@ -82,12 +83,35 @@ int main(int /*argc*/, char* /*argv*/[]) {
     wss::transcription::InferencePool inference_pool(
         *backend, static_cast<size_t>(cfg.inference_threads));
     wss::session::SessionManager session_mgr(cfg.max_sessions);
-    wss::server::WebSocketServer server(cfg.port, session_mgr, inference_pool, cfg.api_key);
 
-    if (cfg.api_key.empty()) {
-        spdlog::warn("WSS_API_KEY not set — authentication disabled (dev mode)");
+    // Initialize JWT validator if configured
+    std::shared_ptr<wss::auth::JwtValidator> jwt_validator;
+    if (!cfg.jwt_jwks_url.empty()) {
+        wss::auth::JwtConfig jwt_cfg;
+        jwt_cfg.jwks_url = cfg.jwt_jwks_url;
+        jwt_cfg.issuer = cfg.jwt_issuer;
+        jwt_cfg.audience = cfg.jwt_audience;
+        jwt_validator = std::make_shared<wss::auth::JwtValidator>(std::move(jwt_cfg));
+        if (!jwt_validator->initialize()) {
+            spdlog::error("Failed to initialize JWT validator — aborting");
+            return 1;
+        }
+        spdlog::info("JWT/OIDC authentication enabled (JWKS: {})", cfg.jwt_jwks_url);
+    }
+
+    wss::server::WebSocketServer server(
+        cfg.port, session_mgr, inference_pool, cfg.api_key,
+        wss::server::WebSocketServer::TlsConfig(), jwt_validator);
+
+    if (cfg.api_key.empty() && !jwt_validator) {
+        spdlog::warn("WSS_API_KEY not set and JWT not configured — authentication disabled (dev mode)");
     } else {
-        spdlog::info("API key authentication enabled");
+        if (!cfg.api_key.empty()) {
+            spdlog::info("API key authentication enabled");
+        }
+        if (jwt_validator) {
+            spdlog::info("JWT authentication enabled");
+        }
     }
 
     spdlog::info("Starting server...");

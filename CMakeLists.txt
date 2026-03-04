@@ -42,13 +42,13 @@ add_subdirectory(third_party/whisper.cpp)
 include(FetchContent)
 
 FetchContent_Declare(
-    json
+    nlohmann_json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
     GIT_TAG        v3.11.3
     GIT_SHALLOW    TRUE
 )
 set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(json)
+FetchContent_MakeAvailable(nlohmann_json)
 
 # --- spdlog (header-only, FetchContent) ---
 FetchContent_Declare(
@@ -59,6 +59,24 @@ FetchContent_Declare(
 )
 set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(spdlog)
+
+# --- jwt-cpp (header-only, FetchContent) ---
+set(JWT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(JWT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(JWT_DISABLE_PICOJSON ON CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    jwt_cpp
+    GIT_REPOSITORY https://github.com/Thalhammer/jwt-cpp.git
+    GIT_TAG        v0.7.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(jwt_cpp)
+
+# --- libcurl (system, for JWKS fetching) ---
+find_package(CURL REQUIRED)
+
+# --- OpenSSL (required by jwt-cpp for cryptographic operations) ---
+find_package(OpenSSL REQUIRED)
 
 # --- toml++ (header-only, FetchContent) ---
 FetchContent_Declare(
@@ -171,6 +189,14 @@ get_target_property(_prom_inc prometheus-cpp::core INTERFACE_INCLUDE_DIRECTORIES
 if(_prom_inc)
     target_include_directories(transcription_server SYSTEM PRIVATE ${_prom_inc})
 endif()
+get_target_property(_jwt_inc jwt-cpp::jwt-cpp INTERFACE_INCLUDE_DIRECTORIES)
+if(_jwt_inc)
+    target_include_directories(transcription_server SYSTEM PRIVATE ${_jwt_inc})
+endif()
+get_target_property(_curl_inc CURL::libcurl INTERFACE_INCLUDE_DIRECTORIES)
+if(_curl_inc)
+    target_include_directories(transcription_server SYSTEM PRIVATE ${_curl_inc})
+endif()
 
 # Apply hardened flags only to our code
 target_compile_options(transcription_server PRIVATE ${WSS_COMPILE_OPTIONS})
@@ -185,6 +211,10 @@ target_link_libraries(transcription_server PRIVATE
     spdlog::spdlog
     tomlplusplus::tomlplusplus
     prometheus-cpp::core
+    jwt-cpp::jwt-cpp
+    CURL::libcurl
+    OpenSSL::SSL
+    OpenSSL::Crypto
 )
 
 # Link opus

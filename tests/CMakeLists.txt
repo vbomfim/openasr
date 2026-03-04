@@ -12,6 +12,7 @@ add_executable(openasr_tests
     test_session.cpp
     test_config.cpp
     test_connection.cpp
+    test_jwt_validator.cpp
 )
 
 target_include_directories(openasr_tests PRIVATE
@@ -36,6 +37,14 @@ get_target_property(_whisper_inc whisper INTERFACE_INCLUDE_DIRECTORIES)
 if(_whisper_inc)
     target_include_directories(openasr_tests SYSTEM PRIVATE ${_whisper_inc})
 endif()
+get_target_property(_jwt_inc jwt-cpp::jwt-cpp INTERFACE_INCLUDE_DIRECTORIES)
+if(_jwt_inc)
+    target_include_directories(openasr_tests SYSTEM PRIVATE ${_jwt_inc})
+endif()
+get_target_property(_curl_inc CURL::libcurl INTERFACE_INCLUDE_DIRECTORIES)
+if(_curl_inc)
+    target_include_directories(openasr_tests SYSTEM PRIVATE ${_curl_inc})
+endif()
 
 target_link_libraries(openasr_tests PRIVATE
     GTest::gtest_main
@@ -43,6 +52,10 @@ target_link_libraries(openasr_tests PRIVATE
     spdlog::spdlog
     tomlplusplus::tomlplusplus
     whisper
+    jwt-cpp::jwt-cpp
+    CURL::libcurl
+    OpenSSL::SSL
+    OpenSSL::Crypto
 )
 
 # Link opus and samplerate for audio tests

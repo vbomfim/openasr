@@ -7,6 +7,7 @@
 #include "protocol/messages.hpp"
 #include "protocol/validator.hpp"
 #include "metrics/metrics.hpp"
+#include "auth/jwt_validator.hpp"
 #include <prometheus/text_serializer.h>
 #include <App.h>
 #include <spdlog/spdlog.h>
@@ -17,6 +18,7 @@
 #include <atomic>
 #include <array>
 #include <cstring>
+#include <memory>
 
 // Forward declaration — main.cpp should define a non-static g_running
 // and remove the static qualifier so this extern resolves at link time.
@@ -61,12 +63,14 @@ public:
                              session::SessionManager& session_mgr,
                              transcription::InferencePool& inference_pool,
                              const std::string& api_key = "",
-                             TlsConfig tls = TlsConfig())
+                             TlsConfig tls = TlsConfig(),
+                             std::shared_ptr<auth::JwtValidator> jwt_validator = nullptr)
         : port_(port)
         , session_mgr_(session_mgr)
         , inference_pool_(inference_pool)
         , api_key_(api_key)
-        , tls_config_(std::move(tls)) {
+        , tls_config_(std::move(tls))
+        , jwt_validator_(std::move(jwt_validator)) {
         if (tls_config_.enabled) {
             spdlog::warn("TLS enabled in config but native TLS requires uWS::SSLApp. "
                          "Use a reverse proxy (K8s ingress, envoy) for TLS termination.");
@@ -141,12 +145,29 @@ public:
             .maxBackpressure = 1 * 1024 * 1024,
 
             .upgrade = [this](auto* res, auto* req, auto* context) {
-                bool authenticated = api_key_.empty(); // dev mode if no key configured
+                bool authenticated = api_key_.empty() && !jwt_validator_;
 
                 if (!authenticated) {
                     std::string_view auth = req->getHeader("authorization");
-                    if (auth.size() > 7 && auth.substr(0, 7) == "Bearer " && auth.substr(7) == api_key_) {
-                        authenticated = true;
+                    if (auth.size() > 7 && auth.substr(0, 7) == "Bearer ") {
+                        auto token = std::string(auth.substr(7));
+
+                        // Try API key match first
+                        if (!api_key_.empty() && token == api_key_) {
+                            authenticated = true;
+                        }
+
+                        // Try JWT validation if configured and API key didn't match
+                        if (!authenticated && jwt_validator_) {
+                            auto jwt_result = jwt_validator_->validate(token);
+                            if (jwt_result.valid) {
+                                authenticated = true;
+                                spdlog::info("JWT auth: sub={} username={}",
+                                    jwt_result.subject, jwt_result.preferred_username);
+                            } else {
+                                spdlog::debug("JWT validation failed: {}", jwt_result.error);
+                            }
+                        }
                     }
                 }
 
@@ -586,6 +607,7 @@ private:
     transcription::InferencePool& inference_pool_;
     std::string api_key_;
     TlsConfig tls_config_;
+    std::shared_ptr<auth::JwtValidator> jwt_validator_;
     std::atomic<size_t> active_connections_{0};
     static constexpr size_t kMaxConnections = 100;
 };

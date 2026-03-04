@@ -49,6 +49,11 @@ struct ServerConfig {
     std::string api_key; // if empty, auth is disabled (dev mode)
     bool require_auth = false; // set via WSS_REQUIRE_AUTH=true
 
+    // JWT/OIDC authentication (zero-trust)
+    std::string jwt_jwks_url;   // JWKS endpoint URL (e.g., Azure Entra ID)
+    std::string jwt_issuer;     // Expected "iss" claim
+    std::string jwt_audience;   // Expected "aud" claim
+
     /// Load configuration from environment variables.
     static ServerConfig from_env() {
         ServerConfig cfg;
@@ -69,6 +74,9 @@ struct ServerConfig {
         if (auto* v = std::getenv("WSS_REQUIRE_AUTH")) {
             cfg.require_auth = (std::string(v) == "true" || std::string(v) == "1");
         }
+        if (auto* v = std::getenv("WSS_JWT_JWKS_URL"))   cfg.jwt_jwks_url = v;
+        if (auto* v = std::getenv("WSS_JWT_ISSUER"))     cfg.jwt_issuer = v;
+        if (auto* v = std::getenv("WSS_JWT_AUDIENCE"))   cfg.jwt_audience = v;
 
         return cfg;
     }
@@ -142,6 +150,9 @@ struct ServerConfig {
         if (auto* v = std::getenv("WSS_REQUIRE_AUTH")) {
             cfg.require_auth = (std::string(v) == "true" || std::string(v) == "1");
         }
+        if (auto* v = std::getenv("WSS_JWT_JWKS_URL"))   cfg.jwt_jwks_url = v;
+        if (auto* v = std::getenv("WSS_JWT_ISSUER"))     cfg.jwt_issuer = v;
+        if (auto* v = std::getenv("WSS_JWT_AUDIENCE"))   cfg.jwt_audience = v;
 
         return cfg;
     }
