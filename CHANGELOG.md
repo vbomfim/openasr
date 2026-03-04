@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-03-04
+
+### Added
+- Voice Activity Detection (VAD) for speech-aligned windowing (`vad_enabled` config)
+- Structured JSON logging (`WSS_LOG_FORMAT=json`) for Datadog/Loki/ELK
+- GPU (CUDA) Dockerfile (`docker/Dockerfile.cuda`) for 10-50× faster inference
+- Integration tests in CI pipeline (48 tests + E2E transcription)
+- E2E test script (`tools/e2e_test.py`)
+- Prometheus inference_duration histogram with proper active_jobs tracking
+
+### Fixed
+- Graceful shutdown now drains in-flight inference before exit (two-phase shutdown)
+- VAD window buffer bounded to prevent OOM on corrupted state
+
+### Changed
+- Shutdown timer polls every 200ms (was 1000ms) for faster drain detection
+
 ## [0.2.0] - 2026-03-03
 
 ### Added
