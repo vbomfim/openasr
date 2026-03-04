@@ -30,8 +30,6 @@ public:
 
         if (vad_enabled_) {
             vad_ = VoiceActivityDetector(vad_config);
-            // Pre-allocate VAD scratch buffer for processing incoming audio
-            vad_scratch_.resize(window_samples_);
         }
     }
 
@@ -189,7 +187,6 @@ private:
     size_t vad_window_start_ = 0;
     size_t vad_window_end_ = 0;
     size_t vad_total_samples_ = 0;
-    std::vector<SampleFloat> vad_scratch_;
 };
 
 } // namespace wss::audio

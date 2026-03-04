@@ -53,6 +53,7 @@ public:
     /// When VAD is enabled, also processes audio through the VAD detector.
     size_t ingest_audio(const uint8_t* data, size_t byte_count) {
         std::lock_guard lock(mutex_);
+        size_t total_before = pipeline_.ring_buffer().total_written();
         size_t written;
         if (config_.encoding == "opus") {
             written = pipeline_.ingest_opus(data, byte_count);
@@ -60,15 +61,16 @@ public:
             written = pipeline_.ingest_pcm(data, byte_count);
         }
 
-        // Process through VAD if enabled
+        // Process new samples through VAD if enabled
         if (config_.vad_enabled && written > 0) {
-            // Extract the just-written samples from ring buffer for VAD processing
-            size_t samples_to_process = std::min(written, pipeline_.ring_buffer().available());
-            if (vad_scratch_.size() < samples_to_process) {
-                vad_scratch_.resize(samples_to_process);
+            size_t total_after = pipeline_.ring_buffer().total_written();
+            size_t new_samples = total_after - total_before;
+            if (vad_scratch_.size() < new_samples) {
+                vad_scratch_.resize(new_samples);
             }
+            // Extract only the newly written samples (offset 0 = most recent)
             size_t extracted = pipeline_.ring_buffer().extract_window(
-                vad_scratch_.data(), samples_to_process, 0);
+                vad_scratch_.data(), new_samples, 0);
             if (extracted > 0) {
                 buffer_engine_.process_vad(vad_scratch_.data(), extracted);
             }
