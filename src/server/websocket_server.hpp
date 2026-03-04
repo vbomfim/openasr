@@ -471,7 +471,6 @@ private:
                                transcription::TranscriptionResult result,
                                int64_t window_start_ms, int64_t window_end_ms) {
         metrics::Metrics::instance().inference_jobs_completed_total.Increment();
-        metrics::Metrics::instance().inference_queue_depth.Decrement();
         metrics::Metrics::instance().transcription_segments_total.Increment(
             static_cast<double>(result.segments.size()));
 
