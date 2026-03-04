@@ -463,6 +463,135 @@ class TestServerSurvival(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(resp.status, 200)
 
 
+def _fetch_metrics() -> dict[str, float]:
+    """Fetch /metrics and parse into {metric_name: value} dict."""
+    url = f"{_http_base_url()}/metrics"
+    req = urllib.request.Request(url, method="GET")
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        text = resp.read().decode()
+    result = {}
+    for line in text.splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        parts = line.split()
+        if len(parts) >= 2:
+            # Handle labels: openasr_x{le="1"} 0 → key=openasr_x{le="1"}
+            result[parts[0]] = float(parts[1])
+    return result
+
+
+class TestMetrics(unittest.IsolatedAsyncioTestCase):
+    """Verify Prometheus metrics endpoint works and counters update correctly."""
+
+    async def test_metrics_endpoint_returns_200(self):
+        """GET /metrics returns 200 with Prometheus text format."""
+        url = f"{_http_base_url()}/metrics"
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            self.assertEqual(resp.status, 200)
+            body = resp.read().decode()
+            self.assertIn("openasr_active_sessions", body)
+            self.assertIn("openasr_connections_total", body)
+            self.assertIn("openasr_inference_duration_seconds", body)
+
+    async def test_metrics_has_all_expected_metrics(self):
+        """All documented metrics are present."""
+        metrics = _fetch_metrics()
+        expected = [
+            "openasr_active_sessions",
+            "openasr_active_connections",
+            "openasr_connections_total",
+            "openasr_connections_rejected_auth_total",
+            "openasr_connections_rejected_limit_total",
+            "openasr_sessions_created_total",
+            "openasr_sessions_destroyed_total",
+            "openasr_audio_bytes_received_total",
+            "openasr_audio_chunks_received_total",
+            "openasr_inference_jobs_submitted_total",
+            "openasr_inference_jobs_completed_total",
+            "openasr_inference_jobs_dropped_total",
+            "openasr_transcription_segments_total",
+            "openasr_errors_total",
+            "openasr_backpressure_events_total",
+            "openasr_inference_duration_seconds_count",
+            "openasr_inference_duration_seconds_sum",
+        ]
+        for name in expected:
+            self.assertIn(name, metrics, f"Missing metric: {name}")
+
+    async def test_connection_counter_increments(self):
+        """Connecting increments openasr_connections_total."""
+        before = _fetch_metrics().get("openasr_connections_total", 0)
+        async with await _connect() as ws:
+            pass  # just connect and disconnect
+        await asyncio.sleep(0.5)
+        after = _fetch_metrics().get("openasr_connections_total", 0)
+        self.assertGreater(after, before)
+
+    async def test_session_counters_increment(self):
+        """Creating a session increments sessions_created_total."""
+        before = _fetch_metrics().get("openasr_sessions_created_total", 0)
+        async with await _connect() as ws:
+            await _setup_session(ws)
+        await asyncio.sleep(0.5)
+        after = _fetch_metrics().get("openasr_sessions_created_total", 0)
+        self.assertGreater(after, before)
+
+    async def test_audio_bytes_counter_increments(self):
+        """Sending audio increments audio_bytes_received_total."""
+        before = _fetch_metrics().get("openasr_audio_bytes_received_total", 0)
+        async with await _connect() as ws:
+            ack = await _setup_session(ws)
+            if ack.get("type") != "speech.error":
+                await ws.send(b'\x00' * 6400)  # 200ms silence
+                await asyncio.sleep(0.5)
+        await asyncio.sleep(0.5)
+        after = _fetch_metrics().get("openasr_audio_bytes_received_total", 0)
+        self.assertGreater(after, before)
+
+    async def test_auth_rejected_counter_increments(self):
+        """Failed auth increments connections_rejected_auth_total."""
+        if not API_KEY:
+            self.skipTest("No API key configured, auth disabled")
+        before = _fetch_metrics().get("openasr_connections_rejected_auth_total", 0)
+        try:
+            async with websockets.connect(
+                SERVER_URL,
+                additional_headers={"Authorization": "Bearer wrong-key"},
+                close_timeout=5, open_timeout=5,
+            ):
+                pass
+        except Exception:
+            pass
+        await asyncio.sleep(0.5)
+        after = _fetch_metrics().get("openasr_connections_rejected_auth_total", 0)
+        self.assertGreater(after, before)
+
+    async def test_errors_counter_increments(self):
+        """Sending invalid message increments errors_total."""
+        before = _fetch_metrics().get("openasr_errors_total", 0)
+        async with await _connect() as ws:
+            await ws.send("{invalid json")
+            try:
+                await asyncio.wait_for(ws.recv(), timeout=2)
+            except Exception:
+                pass
+        await asyncio.sleep(0.5)
+        after = _fetch_metrics().get("openasr_errors_total", 0)
+        self.assertGreater(after, before)
+
+    async def test_active_sessions_gauge_returns_to_zero(self):
+        """After session closes, active_sessions returns to its previous value."""
+        before = _fetch_metrics().get("openasr_active_sessions", 0)
+        async with await _connect() as ws:
+            await _setup_session(ws)
+            during = _fetch_metrics().get("openasr_active_sessions", 0)
+            self.assertGreater(during, before)
+        await asyncio.sleep(1)
+        after = _fetch_metrics().get("openasr_active_sessions", 0)
+        self.assertEqual(after, before)
+
+
 # ── CLI entry point ─────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
