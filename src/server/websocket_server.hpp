@@ -699,8 +699,8 @@ private:
         }
 
         // Close all connections (copy set since close handler modifies it)
-        auto ws_copy = active_websockets_;
-        for (auto* ws : ws_copy) {
+        auto connections_to_close = active_websockets_;
+        for (auto* ws : connections_to_close) {
             ws->end(1001, "Server shutting down");
         }
 
@@ -710,8 +710,8 @@ private:
 
     /// Force-close all active connections (timeout path).
     void force_close_all_connections() {
-        auto ws_copy = active_websockets_;
-        for (auto* ws : ws_copy) {
+        auto connections_to_close = active_websockets_;
+        for (auto* ws : connections_to_close) {
             ws->end(1001, "Server shutdown timeout");
         }
     }
