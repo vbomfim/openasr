@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "audio/buffer_engine.hpp"
 #include "audio/audio_ring_buffer.hpp"
+#include <cmath>
 #include <vector>
 #include <numeric>
 
@@ -213,5 +214,188 @@ TEST(BufferEngineTest, MultipleWindows_CoverTimeline) {
         expected_start += (win_ms - overlap_ms);
     }
     // After extracting all, next should not be ready
+    EXPECT_FALSE(engine.window_ready(ring));
+}
+
+// --- VAD-aware windowing tests ---
+
+// Helper: generate a sine wave tone (speech-like)
+static std::vector<float> make_tone(size_t num_samples, float amplitude = 0.1f,
+                                     float freq = 440.0f) {
+    std::vector<float> data(num_samples);
+    for (size_t i = 0; i < num_samples; ++i) {
+        data[i] = amplitude * std::sin(
+            2.0f * static_cast<float>(M_PI) * freq *
+            static_cast<float>(i) / static_cast<float>(kSR));
+    }
+    return data;
+}
+
+// Helper: generate silence
+static std::vector<float> make_silence(size_t num_samples) {
+    return std::vector<float>(num_samples, 0.0f);
+}
+
+// 17. VAD disabled by default
+TEST(BufferEngineTest, VadDisabled_ByDefault) {
+    BufferEngine engine(1000, 200);
+    EXPECT_FALSE(engine.vad_enabled());
+}
+
+// 18. VAD can be enabled
+TEST(BufferEngineTest, VadEnabled_Constructor) {
+    BufferEngine engine(1000, 200, true);
+    EXPECT_TRUE(engine.vad_enabled());
+}
+
+// 19. VAD mode: window not ready without processing
+TEST(BufferEngineTest, VadMode_NoData_NotReady) {
+    BufferEngine engine(5000, 500, true);
+    AudioRingBuffer ring(80000);
+    EXPECT_FALSE(engine.window_ready(ring));
+}
+
+// 20. VAD mode: speech then silence triggers window
+TEST(BufferEngineTest, VadMode_SpeechThenSilence_WindowReady) {
+    wss::audio::VadConfig vad_cfg;
+    vad_cfg.silence_timeout_ms = 500;
+    BufferEngine engine(20000, 2000, true, vad_cfg);
+
+    size_t ring_capacity = static_cast<size_t>(30 * kSR);
+    AudioRingBuffer ring(ring_capacity);
+
+    // Write speech (1 second)
+    auto tone = make_tone(16000);
+    ring.write(tone.data(), tone.size());
+    engine.process_vad(tone.data(), tone.size());
+    EXPECT_FALSE(engine.window_ready(ring));
+
+    // Write silence (500ms = timeout)
+    auto silence = make_silence(8000);
+    ring.write(silence.data(), silence.size());
+    engine.process_vad(silence.data(), silence.size());
+
+    EXPECT_TRUE(engine.window_ready(ring));
+
+    auto result = engine.extract_window(ring);
+    EXPECT_GT(result.count, 0u);
+    EXPECT_EQ(result.start_ms, 0);
+}
+
+// 21. VAD mode: continuous speech triggers window at max duration
+TEST(BufferEngineTest, VadMode_ContinuousSpeech_FallbackToMaxWindow) {
+    wss::audio::VadConfig vad_cfg;
+    vad_cfg.silence_timeout_ms = 500;
+    int32_t window_ms = 1000; // 1s max window
+    BufferEngine engine(window_ms, 200, true, vad_cfg);
+
+    size_t ring_capacity = static_cast<size_t>(30 * kSR);
+    AudioRingBuffer ring(ring_capacity);
+
+    // Write more than max window of continuous speech
+    auto tone = make_tone(static_cast<size_t>(window_ms * kSR / 1000) + 1600);
+    ring.write(tone.data(), tone.size());
+    engine.process_vad(tone.data(), tone.size());
+
+    EXPECT_TRUE(engine.window_ready(ring));
+}
+
+// 22. VAD mode: only silence, no window ready
+TEST(BufferEngineTest, VadMode_OnlySilence_NotReady) {
+    BufferEngine engine(5000, 500, true);
+    AudioRingBuffer ring(80000);
+
+    auto silence = make_silence(16000); // 1s of silence
+    ring.write(silence.data(), silence.size());
+    engine.process_vad(silence.data(), silence.size());
+
+    EXPECT_FALSE(engine.window_ready(ring));
+}
+
+// 23. VAD mode: extract window resets VAD ready state
+TEST(BufferEngineTest, VadMode_ExtractResetsReady) {
+    wss::audio::VadConfig vad_cfg;
+    vad_cfg.silence_timeout_ms = 500;
+    BufferEngine engine(20000, 2000, true, vad_cfg);
+
+    size_t ring_capacity = static_cast<size_t>(30 * kSR);
+    AudioRingBuffer ring(ring_capacity);
+
+    // Speech + silence to trigger window
+    auto tone = make_tone(16000);
+    ring.write(tone.data(), tone.size());
+    engine.process_vad(tone.data(), tone.size());
+
+    auto silence = make_silence(8000);
+    ring.write(silence.data(), silence.size());
+    engine.process_vad(silence.data(), silence.size());
+
+    EXPECT_TRUE(engine.window_ready(ring));
+
+    auto result = engine.extract_window(ring);
+    EXPECT_GT(result.count, 0u);
+
+    // After extraction, should not be ready anymore
+    EXPECT_FALSE(engine.window_ready(ring));
+}
+
+// 24. VAD mode: multiple utterances produce multiple windows
+TEST(BufferEngineTest, VadMode_MultipleUtterances) {
+    wss::audio::VadConfig vad_cfg;
+    vad_cfg.silence_timeout_ms = 500;
+    BufferEngine engine(20000, 2000, true, vad_cfg);
+
+    size_t ring_capacity = static_cast<size_t>(30 * kSR);
+    AudioRingBuffer ring(ring_capacity);
+
+    // First utterance
+    auto tone1 = make_tone(8000); // 500ms
+    ring.write(tone1.data(), tone1.size());
+    engine.process_vad(tone1.data(), tone1.size());
+
+    auto silence1 = make_silence(8000); // 500ms silence
+    ring.write(silence1.data(), silence1.size());
+    engine.process_vad(silence1.data(), silence1.size());
+
+    EXPECT_TRUE(engine.window_ready(ring));
+    auto r1 = engine.extract_window(ring);
+    EXPECT_GT(r1.count, 0u);
+    EXPECT_EQ(r1.start_ms, 0);
+
+    // Second utterance
+    auto tone2 = make_tone(8000);
+    ring.write(tone2.data(), tone2.size());
+    engine.process_vad(tone2.data(), tone2.size());
+
+    auto silence2 = make_silence(8000);
+    ring.write(silence2.data(), silence2.size());
+    engine.process_vad(silence2.data(), silence2.size());
+
+    EXPECT_TRUE(engine.window_ready(ring));
+    auto r2 = engine.extract_window(ring);
+    EXPECT_GT(r2.count, 0u);
+    EXPECT_GT(r2.start_ms, r1.start_ms); // second window starts after first
+}
+
+// 25. VAD mode: reset clears state
+TEST(BufferEngineTest, VadMode_Reset_ClearsState) {
+    wss::audio::VadConfig vad_cfg;
+    vad_cfg.silence_timeout_ms = 500;
+    BufferEngine engine(20000, 2000, true, vad_cfg);
+
+    size_t ring_capacity = static_cast<size_t>(30 * kSR);
+    AudioRingBuffer ring(ring_capacity);
+
+    auto tone = make_tone(16000);
+    ring.write(tone.data(), tone.size());
+    engine.process_vad(tone.data(), tone.size());
+
+    auto silence = make_silence(8000);
+    ring.write(silence.data(), silence.size());
+    engine.process_vad(silence.data(), silence.size());
+
+    EXPECT_TRUE(engine.window_ready(ring));
+
+    engine.reset();
     EXPECT_FALSE(engine.window_ready(ring));
 }

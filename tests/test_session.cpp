@@ -128,3 +128,18 @@ TEST(Session, RingBufferFillRatio_Works) {
     EXPECT_GT(ratio, 0.0f);
     EXPECT_LE(ratio, 1.0f);
 }
+
+// T11-12: VAD enabled session constructs successfully
+TEST(Session, VadEnabled_Construct) {
+    auto cfg = make_config();
+    cfg.vad_enabled = true;
+    Session s(cfg);
+    EXPECT_EQ(s.session_id(), "test-123");
+    EXPECT_TRUE(s.config().vad_enabled);
+}
+
+// T11-13: VAD disabled session (default)
+TEST(Session, VadDisabled_Default) {
+    Session s(make_config());
+    EXPECT_FALSE(s.config().vad_enabled);
+}
