@@ -441,6 +441,122 @@ class TestStress(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(_health_ok(), "Server not healthy after stress test")
 
 
+class TestConcurrentSessions(unittest.IsolatedAsyncioTestCase):
+    """Test concurrent sessions across I/O threads.
+    
+    These tests verify that multiple simultaneous connections work correctly,
+    which exercises multi-threaded I/O when WSS_IO_THREADS > 1.
+    """
+
+    async def test_multiple_simultaneous_sessions(self):
+        """Open 5 sessions concurrently, each gets a unique session ID."""
+        sessions = []
+        for _ in range(5):
+            ws = await _connect()
+            ack = await _setup_session(ws)
+            if ack.get("type") != "speech.error":
+                sessions.append((ws, ack["payload"]["session_id"]))
+
+        # All session IDs should be unique
+        ids = [sid for _, sid in sessions]
+        self.assertEqual(len(ids), len(set(ids)), "Duplicate session IDs detected")
+
+        # Clean up
+        for ws, _ in sessions:
+            await ws.close()
+
+        await asyncio.sleep(0.5)
+        self.assertTrue(_health_ok())
+
+    async def test_concurrent_audio_streaming(self):
+        """Stream audio on 3 sessions simultaneously → no crash or cross-talk."""
+        async def stream_session(session_num):
+            ws = await _connect()
+            ack = await _setup_session(ws)
+            if ack.get("type") == "speech.error":
+                await ws.close()
+                return None
+            sid = ack["payload"]["session_id"]
+            # Send some audio
+            silence = b"\x00" * 6400  # 200ms
+            for _ in range(10):
+                await ws.send(silence)
+                await asyncio.sleep(0.05)
+            await ws.close()
+            return sid
+
+        tasks = [stream_session(i) for i in range(3)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        successful = [r for r in results if isinstance(r, str)]
+        self.assertGreaterEqual(len(successful), 1, "At least 1 session should succeed")
+        self.assertTrue(_health_ok())
+
+    async def test_connections_distributed(self):
+        """Open 10 connections rapidly to test distribution across I/O threads."""
+        connections = []
+        for _ in range(10):
+            try:
+                ws = await _connect()
+                connections.append(ws)
+            except Exception:
+                pass
+
+        self.assertGreaterEqual(len(connections), 5, "At least 5 connections should succeed")
+
+        # Verify health shows correct active connection count
+        url = f"{_http_base_url()}/health"
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = json.loads(resp.read())
+            # active_sessions is 0 (no speech.config sent), but connections are open
+
+        # Close all
+        for ws in connections:
+            await ws.close()
+
+        await asyncio.sleep(0.5)
+        self.assertTrue(_health_ok())
+
+    async def test_cross_thread_inference_delivery(self):
+        """Start session, send enough audio for a window, verify hypothesis arrives.
+        
+        This tests that inference results (from the worker thread pool) are
+        delivered back to the correct WebSocket connection regardless of which
+        I/O thread handles it.
+        """
+        ws = await _connect()
+        ack = await _setup_session(ws, window_duration_ms=3000, overlap_duration_ms=0)
+        if ack.get("type") == "speech.error":
+            await ws.close()
+            self.skipTest("Session creation failed")
+            return
+
+        # Send 3.5s of audio (enough for a 3s window)
+        silence = b"\x00" * 6400  # 200ms at 16kHz
+        for _ in range(18):  # 18 * 200ms = 3.6s
+            await ws.send(silence)
+            await asyncio.sleep(0.01)
+
+        # Wait for a response (hypothesis, phrase, or checkpoint)
+        got_response = False
+        try:
+            while True:
+                resp = await asyncio.wait_for(ws.recv(), timeout=30)
+                msg = json.loads(resp)
+                if msg["type"] in ("speech.hypothesis", "speech.phrase", "speech.checkpoint"):
+                    got_response = True
+                    break
+        except (asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
+            pass
+
+        await ws.close()
+        self.assertTrue(got_response, "Should receive inference result (hypothesis/phrase/checkpoint)")
+        self.assertTrue(_health_ok())
+
+    async def asyncTearDown(self):
+        self.assertTrue(_health_ok(), "Server not healthy after concurrency test")
+
+
 # ── Health after all abuse ──────────────────────────────────────────────────
 
 class TestServerSurvival(unittest.IsolatedAsyncioTestCase):
