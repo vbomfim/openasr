@@ -74,6 +74,7 @@ struct SpeechConfigPayload {
     int32_t window_duration_ms = 5000;
     int32_t overlap_duration_ms = 500;
     std::string model_id = "whisper-tiny.en";
+    bool vad_enabled = false;
     std::optional<CheckpointData> resume_checkpoint;
 };
 
@@ -84,7 +85,8 @@ inline void to_json(nlohmann::json& j, const SpeechConfigPayload& p) {
         {"encoding", p.encoding},
         {"window_duration_ms", p.window_duration_ms},
         {"overlap_duration_ms", p.overlap_duration_ms},
-        {"model_id", p.model_id}
+        {"model_id", p.model_id},
+        {"vad_enabled", p.vad_enabled}
     };
     if (p.resume_checkpoint) {
         j["resume_checkpoint"] = *p.resume_checkpoint;
@@ -101,6 +103,7 @@ inline void from_json(const nlohmann::json& j, SpeechConfigPayload& p) {
     j.at("overlap_duration_ms").get_to(p.overlap_duration_ms);
     // Optional fields
     if (j.contains("model_id")) j.at("model_id").get_to(p.model_id);
+    if (j.contains("vad_enabled")) j.at("vad_enabled").get_to(p.vad_enabled);
     if (j.contains("resume_checkpoint") && !j["resume_checkpoint"].is_null()) {
         p.resume_checkpoint = j["resume_checkpoint"].get<CheckpointData>();
     }

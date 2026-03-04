@@ -33,6 +33,9 @@ struct ServerConfig {
     int32_t overlap_duration_ms = 2000;
     int32_t max_buffered_duration_ms = 60000;
 
+    // Voice Activity Detection
+    bool vad_enabled = false;
+
     // Model
     std::string model_path;
     std::string language = "en";
@@ -59,6 +62,9 @@ struct ServerConfig {
         if (auto* v = std::getenv("WSS_WINDOW_DURATION_MS")) cfg.window_duration_ms = static_cast<int32_t>(safe_atoi(v, cfg.window_duration_ms));
         if (auto* v = std::getenv("WSS_OVERLAP_DURATION_MS"))cfg.overlap_duration_ms = static_cast<int32_t>(safe_atoi(v, cfg.overlap_duration_ms));
         if (auto* v = std::getenv("WSS_MAX_BUFFERED_MS"))    cfg.max_buffered_duration_ms = static_cast<int32_t>(safe_atoi(v, cfg.max_buffered_duration_ms));
+        if (auto* v = std::getenv("WSS_VAD_ENABLED")) {
+            cfg.vad_enabled = (std::string(v) == "true" || std::string(v) == "1");
+        }
         if (auto* v = std::getenv("WHISPER_MODEL_PATH"))     cfg.model_path = v;
         if (auto* v = std::getenv("WSS_LANGUAGE"))           cfg.language = v;
         if (auto* v = std::getenv("WSS_BEAM_SIZE"))          cfg.beam_size = safe_atoi(v, cfg.beam_size);
@@ -99,6 +105,10 @@ struct ServerConfig {
                 if (auto v = tbl["buffer"]["max_buffered_duration_ms"].value<int64_t>())
                     cfg.max_buffered_duration_ms = static_cast<int32_t>(*v);
 
+                // [vad]
+                if (auto v = tbl["vad"]["enabled"].value<bool>())
+                    cfg.vad_enabled = *v;
+
                 // [model]
                 if (auto v = tbl["model"]["path"].value<std::string>())
                     cfg.model_path = *v;
@@ -132,6 +142,9 @@ struct ServerConfig {
         if (auto* v = std::getenv("WSS_WINDOW_DURATION_MS")) cfg.window_duration_ms = static_cast<int32_t>(safe_atoi(v, cfg.window_duration_ms));
         if (auto* v = std::getenv("WSS_OVERLAP_DURATION_MS"))cfg.overlap_duration_ms = static_cast<int32_t>(safe_atoi(v, cfg.overlap_duration_ms));
         if (auto* v = std::getenv("WSS_MAX_BUFFERED_MS"))    cfg.max_buffered_duration_ms = static_cast<int32_t>(safe_atoi(v, cfg.max_buffered_duration_ms));
+        if (auto* v = std::getenv("WSS_VAD_ENABLED")) {
+            cfg.vad_enabled = (std::string(v) == "true" || std::string(v) == "1");
+        }
         if (auto* v = std::getenv("WHISPER_MODEL_PATH"))     cfg.model_path = v;
         if (auto* v = std::getenv("WSS_LANGUAGE"))           cfg.language = v;
         if (auto* v = std::getenv("WSS_BEAM_SIZE"))          cfg.beam_size = safe_atoi(v, cfg.beam_size);

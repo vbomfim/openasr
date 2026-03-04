@@ -357,7 +357,8 @@ private:
             .window_duration_ms = config.window_duration_ms,
             .overlap_duration_ms = config.overlap_duration_ms,
             .backend_model_id = config.model_id,
-            .ring_buffer_seconds = 30.0f
+            .ring_buffer_seconds = 30.0f,
+            .vad_enabled = config.vad_enabled
         };
         auto* session = session_mgr_.create_session(std::move(sess_cfg));
         if (!session) {
