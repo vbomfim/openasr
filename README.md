@@ -216,6 +216,56 @@ Compatible identity providers:
 
 When using ingress-level auth, set `WSS_API_KEY` to empty (disable the built-in check) and rely on the gateway to reject unauthenticated requests before they reach the server.
 
+#### Zero-trust JWT validation (defense-in-depth)
+
+For compliance-heavy environments (healthcare, finance) where the server must independently verify tokens — even behind an API gateway — enable native JWT/OIDC validation:
+
+```bash
+# Required: JWKS endpoint URL
+WSS_JWT_JWKS_URL=https://login.microsoftonline.com/{tenant-id}/discovery/v2.0/keys
+
+# Optional: validate issuer and audience claims
+WSS_JWT_ISSUER=https://login.microsoftonline.com/{tenant-id}/v2.0
+WSS_JWT_AUDIENCE=api://openasr
+```
+
+The server will:
+1. Fetch signing keys from the JWKS endpoint on startup
+2. Periodically refresh keys (default: every 1 hour)
+3. Validate JWT signature (RS256, ES256), expiration, issuer, and audience
+4. Extract user identity (`sub`, `preferred_username`) for audit logging
+5. Reject tokens with invalid signatures or expired claims
+
+**Deployment patterns:**
+
+| Pattern | Auth layer | Server config |
+|---------|-----------|---------------|
+| Dev/internal | Server (API key) | `WSS_API_KEY=secret` |
+| Production | Gateway only | `WSS_API_KEY=` (empty) |
+| Zero-trust | Gateway + Server | `WSS_JWT_JWKS_URL=...` |
+
+When both `WSS_API_KEY` and `WSS_JWT_JWKS_URL` are set, the server accepts either authentication method.
+
+**Azure Entra ID example:**
+
+```bash
+docker run -p 9090:9090 \
+  -e WSS_JWT_JWKS_URL=https://login.microsoftonline.com/YOUR_TENANT_ID/discovery/v2.0/keys \
+  -e WSS_JWT_ISSUER=https://login.microsoftonline.com/YOUR_TENANT_ID/v2.0 \
+  -e WSS_JWT_AUDIENCE=api://openasr \
+  ghcr.io/vbomfim/openasr:base.en
+```
+
+**Okta example:**
+
+```bash
+docker run -p 9090:9090 \
+  -e WSS_JWT_JWKS_URL=https://YOUR_DOMAIN.okta.com/oauth2/default/v1/keys \
+  -e WSS_JWT_ISSUER=https://YOUR_DOMAIN.okta.com/oauth2/default \
+  -e WSS_JWT_AUDIENCE=api://openasr \
+  ghcr.io/vbomfim/openasr:base.en
+```
+
 ### Connection Flow
 
 ```mermaid
@@ -614,6 +664,9 @@ All settings via environment variables (or `server.toml` with `WSS_CONFIG_PATH`)
 |----------|---------|-------------|
 | `WHISPER_MODEL_PATH` | *(required)* | Path to GGML model file |
 | `WSS_API_KEY` | *(empty = dev mode)* | API key for authentication |
+| `WSS_JWT_JWKS_URL` | *(empty)* | JWKS endpoint URL for JWT validation |
+| `WSS_JWT_ISSUER` | *(empty)* | Expected JWT issuer (`iss` claim) |
+| `WSS_JWT_AUDIENCE` | *(empty)* | Expected JWT audience (`aud` claim) |
 | `WSS_PORT` | `9090` | Server listen port |
 | `WSS_HOST` | `0.0.0.0` | Server bind address |
 | `WSS_MAX_SESSIONS` | `20` | Maximum concurrent sessions |
