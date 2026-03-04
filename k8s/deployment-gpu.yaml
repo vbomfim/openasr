@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whisperx-server-gpu
+  namespace: whisperx
+  labels:
+    app.kubernetes.io/name: whisperx-server-gpu
+    app.kubernetes.io/part-of: whisperx-streaming-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: whisperx-server-gpu
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: whisperx-server-gpu
+    spec:
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: whisperx-server
+          image: ghcr.io/vbomfim/openasr:large-v3-cuda
+          ports:
+            - containerPort: 9090
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: whisperx-server-config
+          env:
+            - name: WHISPER_MODEL_PATH
+              value: /models/ggml-large-v3.bin
+          volumeMounts:
+            - name: model-storage
+              mountPath: /models
+              readOnly: true
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+              nvidia.com/gpu: 1
+            limits:
+              cpu: "8"
+              memory: 16Gi
+              nvidia.com/gpu: 1
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: model-storage
+          persistentVolumeClaim:
+            claimName: whisperx-model-storage
