@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace wss::session {
 
@@ -52,6 +53,17 @@ public:
 
     /// Maximum allowed sessions.
     [[nodiscard]] size_t max_sessions() const { return max_sessions_; }
+
+    /// Get all active session IDs (for shutdown draining).
+    [[nodiscard]] std::vector<std::string> active_session_ids() const {
+        std::lock_guard lock(mutex_);
+        std::vector<std::string> ids;
+        ids.reserve(sessions_.size());
+        for (const auto& [id, _] : sessions_) {
+            ids.push_back(id);
+        }
+        return ids;
+    }
 
 private:
     size_t max_sessions_;

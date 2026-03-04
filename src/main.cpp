@@ -82,7 +82,8 @@ int main(int /*argc*/, char* /*argv*/[]) {
     wss::transcription::InferencePool inference_pool(
         *backend, static_cast<size_t>(cfg.inference_threads));
     wss::session::SessionManager session_mgr(cfg.max_sessions);
-    wss::server::WebSocketServer server(cfg.port, session_mgr, inference_pool, cfg.api_key);
+    wss::server::WebSocketServer server(cfg.port, session_mgr, inference_pool, cfg.api_key,
+                                        &g_running);
 
     if (cfg.api_key.empty()) {
         spdlog::warn("WSS_API_KEY not set — authentication disabled (dev mode)");

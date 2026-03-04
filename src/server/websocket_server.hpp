@@ -16,7 +16,9 @@
 #include <iomanip>
 #include <atomic>
 #include <array>
+#include <chrono>
 #include <cstring>
+#include <unordered_set>
 
 // Forward declaration — main.cpp should define a non-static g_running
 // and remove the static qualifier so this extern resolves at link time.
@@ -61,11 +63,15 @@ public:
                              session::SessionManager& session_mgr,
                              transcription::InferencePool& inference_pool,
                              const std::string& api_key = "",
+                             std::atomic<bool>* running_flag = nullptr,
+                             int drain_timeout_s = 110,
                              TlsConfig tls = TlsConfig())
         : port_(port)
         , session_mgr_(session_mgr)
         , inference_pool_(inference_pool)
         , api_key_(api_key)
+        , running_flag_(running_flag)
+        , drain_timeout_s_(drain_timeout_s)
         , tls_config_(std::move(tls)) {
         if (tls_config_.enabled) {
             spdlog::warn("TLS enabled in config but native TLS requires uWS::SSLApp. "
@@ -81,10 +87,16 @@ public:
                 if (listen_socket_) {
                     us_listen_socket_close(0, listen_socket_);
                     listen_socket_ = nullptr;
-                    spdlog::info("Listen socket closed, event loop will exit");
+                    spdlog::info("Listen socket closed, starting drain phase");
                 }
+                initiate_drain();
             });
         }
+    }
+
+    /// Check whether the server is in the draining phase.
+    [[nodiscard]] bool is_draining() const {
+        return draining_.load(std::memory_order_acquire);
     }
 
     void run() {
@@ -179,6 +191,7 @@ public:
                 spdlog::info("Client connected ({} active)", active_connections_.load());
                 auto* data = ws->getUserData();
                 data->state = ConnectionState::CONNECTED;
+                active_websockets_.insert(static_cast<WebSocket*>(ws));
             },
 
             .message = [this](auto* ws, std::string_view message, uWS::OpCode opCode) {
@@ -188,6 +201,7 @@ public:
             .close = [this](auto* ws, int code, std::string_view message) {
                 active_connections_.fetch_sub(1);
                 metrics::Metrics::instance().active_connections.Decrement();
+                active_websockets_.erase(static_cast<WebSocket*>(ws));
                 auto* data = ws->getUserData();
                 spdlog::info("Client disconnected: session={} code={} reason={}",
                     data->session_id, code, message);
@@ -239,12 +253,28 @@ public:
         *static_cast<WebSocketServer**>(us_timer_ext(shutdown_timer)) = this;
         us_timer_set(shutdown_timer, [](struct us_timer_t* t) {
             auto* self = *static_cast<WebSocketServer**>(us_timer_ext(t));
-            if (self->shutdown_requested_.load(std::memory_order_acquire)) {
-                if (self->listen_socket_) {
-                    us_listen_socket_close(0, self->listen_socket_);
-                    self->listen_socket_ = nullptr;
-                    spdlog::info("Shutdown: listen socket closed");
-                }
+
+            // Check external running flag (from signal handler)
+            bool should_shutdown = self->shutdown_requested_.load(std::memory_order_acquire);
+            if (!should_shutdown && self->running_flag_) {
+                should_shutdown = !self->running_flag_->load(std::memory_order_acquire);
+            }
+
+            if (!should_shutdown) return;
+
+            // Phase 1: Close listen socket (stop accepting new connections)
+            if (self->listen_socket_) {
+                us_listen_socket_close(0, self->listen_socket_);
+                self->listen_socket_ = nullptr;
+                spdlog::info("Shutdown: listen socket closed");
+            }
+
+            if (!self->draining_.load(std::memory_order_acquire)) {
+                self->initiate_drain();
+            }
+
+            // Phase 2: Check if drain is complete
+            if (self->check_drain_complete()) {
                 us_timer_close(t);
             }
         }, 1000, 1000);
@@ -315,6 +345,13 @@ private:
     }
 
     void handle_speech_config(WebSocket* ws, ConnectionData* conn, const nlohmann::json& payload) {
+        if (draining_.load(std::memory_order_acquire)) {
+            send_error(ws, conn->session_id, "SERVER_SHUTTING_DOWN",
+                "Server is shutting down, not accepting new sessions");
+            ws->close();
+            return;
+        }
+
         if (conn->state != ConnectionState::CONNECTED) {
             send_error(ws, conn->session_id, "INVALID_STATE",
                 "speech.config only allowed in CONNECTED state");
@@ -577,16 +614,123 @@ private:
         ws->send(response, uWS::OpCode::TEXT);
     }
 
+    /// Begin the drain phase: submit remaining buffered windows for all active sessions.
+    void initiate_drain() {
+        if (draining_.exchange(true, std::memory_order_acq_rel)) {
+            return; // already draining
+        }
+        drain_start_ = std::chrono::steady_clock::now();
+
+        auto session_ids = session_mgr_.active_session_ids();
+        spdlog::info("Shutdown drain: {} active sessions, submitting remaining windows",
+            session_ids.size());
+
+        for (const auto& sid : session_ids) {
+            auto* session = session_mgr_.get_session(sid);
+            if (!session) continue;
+
+            while (session->window_ready()) {
+                auto window = session->extract_window();
+                if (window.count == 0) break;
+
+                transcription::InferenceJob job;
+                job.session_id = sid;
+                job.audio.assign(window.samples, window.samples + window.count);
+                job.window_start_ms = window.start_ms;
+                job.window_end_ms = window.end_ms;
+                job.on_complete = [this](const std::string& session_id,
+                                         transcription::TranscriptionResult result,
+                                         int64_t start_ms, int64_t end_ms) {
+                    on_inference_complete(session_id, std::move(result), start_ms, end_ms);
+                };
+                inference_pool_.submit(std::move(job));
+            }
+        }
+
+        spdlog::info("Shutdown drain: all remaining windows submitted, "
+                     "waiting for in-flight inference (pending={}, in_flight={})",
+                     inference_pool_.pending(), inference_pool_.in_flight());
+    }
+
+    /// Check if draining is complete; if so, send final results and close connections.
+    /// Returns true when all connections are closed and the timer can be stopped.
+    bool check_drain_complete() {
+        // Check drain timeout
+        auto elapsed = std::chrono::steady_clock::now() - drain_start_;
+        auto elapsed_s = std::chrono::duration_cast<std::chrono::seconds>(elapsed).count();
+        if (elapsed_s >= drain_timeout_s_) {
+            spdlog::warn("Shutdown drain timeout ({}s), forcing close of {} connections",
+                drain_timeout_s_, active_websockets_.size());
+            force_close_all_connections();
+            return true;
+        }
+
+        // Wait for all inference jobs to complete
+        if (!inference_pool_.drain_complete()) {
+            spdlog::debug("Shutdown drain: waiting (pending={}, in_flight={}, elapsed={}s)",
+                inference_pool_.pending(), inference_pool_.in_flight(), elapsed_s);
+            return false;
+        }
+
+        spdlog::info("Shutdown drain: all inference complete, sending final results");
+
+        // Send final checkpoint and close each connection gracefully
+        for (auto* ws : active_websockets_) {
+            auto* data = ws->getUserData();
+            if (data->session_id.empty()) continue;
+
+            auto* session = session_mgr_.get_session(data->session_id);
+            if (session) {
+                // Send final phrase with accumulated transcript
+                protocol::PhrasePayload phrase;
+                phrase.offset = 0;
+                phrase.duration = session->last_audio_ms();
+                phrase.text = session->transcript();
+                phrase.confidence = 1.0f;
+                phrase.status = "EndOfStream";
+                ws->send(protocol::make_speech_phrase(data->session_id, phrase),
+                         uWS::OpCode::TEXT);
+
+                // Send final checkpoint
+                auto checkpoint = session->make_checkpoint();
+                ws->send(protocol::make_speech_checkpoint(data->session_id, checkpoint),
+                         uWS::OpCode::TEXT);
+            }
+        }
+
+        // Close all connections (copy set since close handler modifies it)
+        auto ws_copy = active_websockets_;
+        for (auto* ws : ws_copy) {
+            ws->end(1001, "Server shutting down");
+        }
+
+        spdlog::info("Shutdown drain complete, all connections closed");
+        return true;
+    }
+
+    /// Force-close all active connections (timeout path).
+    void force_close_all_connections() {
+        auto ws_copy = active_websockets_;
+        for (auto* ws : ws_copy) {
+            ws->end(1001, "Server shutdown timeout");
+        }
+    }
+
     uWS::App* app_ = nullptr; // non-owning, lifetime managed by run()
     uWS::Loop* loop_ = nullptr;
     us_listen_socket_t* listen_socket_ = nullptr;
     std::atomic<bool> shutdown_requested_{false};
+    std::atomic<bool> draining_{false};
     int port_;
     session::SessionManager& session_mgr_;
     transcription::InferencePool& inference_pool_;
     std::string api_key_;
+    std::atomic<bool>* running_flag_ = nullptr;
+    int drain_timeout_s_;
     TlsConfig tls_config_;
     std::atomic<size_t> active_connections_{0};
+    std::unordered_set<WebSocket*> active_websockets_;
+    std::chrono::steady_clock::time_point drain_start_;
     static constexpr size_t kMaxConnections = 100;
 };
 
