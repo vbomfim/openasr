@@ -53,6 +53,15 @@ public:
     /// Maximum allowed sessions.
     [[nodiscard]] size_t max_sessions() const { return max_sessions_; }
 
+    /// List IDs of all active sessions.
+    [[nodiscard]] std::vector<std::string> active_session_ids() const {
+        std::lock_guard lock(mutex_);
+        std::vector<std::string> ids;
+        ids.reserve(sessions_.size());
+        for (const auto& [id, _] : sessions_) ids.push_back(id);
+        return ids;
+    }
+
 private:
     size_t max_sessions_;
     std::unordered_map<std::string, std::unique_ptr<Session>> sessions_;

@@ -350,17 +350,60 @@ private:
         *static_cast<WebSocketServer**>(us_timer_ext(shutdown_timer)) = this;
         us_timer_set(shutdown_timer, [](struct us_timer_t* t) {
             auto* self = *static_cast<WebSocketServer**>(us_timer_ext(t));
-            if (self->shutdown_requested_.load(std::memory_order_acquire)) {
-                // Close ALL listen sockets across all threads
-                std::lock_guard lock(self->apps_mutex_);
-                for (auto* ls : self->listen_sockets_) {
-                    if (ls) us_listen_socket_close(0, ls);
+            if (!self->shutdown_requested_.load(std::memory_order_acquire)) return;
+
+            // Phase 1: Close listen sockets (only once)
+            if (!self->draining_.load()) {
+                {
+                    std::lock_guard lock(self->apps_mutex_);
+                    for (auto* ls : self->listen_sockets_) {
+                        if (ls) us_listen_socket_close(0, ls);
+                    }
+                    self->listen_sockets_.clear();
                 }
-                self->listen_sockets_.clear();
-                spdlog::info("Shutdown: all listen sockets closed");
-                us_timer_close(t);
+                spdlog::info("Shutdown phase 1: listen sockets closed, draining inference...");
+
+                // Drain all active sessions' buffered windows
+                auto session_ids = self->session_mgr_.active_session_ids();
+                for (const auto& sid : session_ids) {
+                    auto* session = self->session_mgr_.get_session(sid);
+                    if (!session) continue;
+                    while (session->window_ready()) {
+                        auto window = session->extract_window();
+                        if (window.count == 0) break;
+                        transcription::InferenceJob job;
+                        job.session_id = sid;
+                        job.audio.assign(window.samples, window.samples + window.count);
+                        job.window_start_ms = window.start_ms;
+                        job.window_end_ms = window.end_ms;
+                        job.on_complete = [self](const std::string& s,
+                                                  transcription::TranscriptionResult r,
+                                                  int64_t a, int64_t b) {
+                            self->on_inference_complete(s, std::move(r), a, b);
+                        };
+                        self->inference_pool_.submit(std::move(job));
+                    }
+                }
+                self->draining_.store(true);
+                self->drain_start_ = std::chrono::steady_clock::now();
+                return; // check again on next timer tick
             }
-        }, 1000, 1000);
+
+            // Phase 2: Wait for drain or timeout
+            auto elapsed = std::chrono::steady_clock::now() - self->drain_start_;
+            bool drained = self->inference_pool_.drain_complete();
+            bool timed_out = elapsed > std::chrono::seconds(30);
+
+            if (drained || timed_out) {
+                if (timed_out) {
+                    spdlog::warn("Shutdown drain timed out after 30s, forcing exit");
+                } else {
+                    spdlog::info("Shutdown phase 2: inference drain complete");
+                }
+                us_timer_close(t);
+                // Event loop will exit when all sockets are closed
+            }
+        }, 200, 200);
     }
 
     void handle_message(WebSocket* ws, std::string_view message, uWS::OpCode opCode) {
@@ -686,6 +729,8 @@ private:
     std::vector<us_listen_socket_t*> listen_sockets_;
     std::vector<std::thread> io_threads_;
     std::atomic<bool> shutdown_requested_{false};
+    std::atomic<bool> draining_{false};
+    std::chrono::steady_clock::time_point drain_start_;
     int port_;
     int io_thread_count_ = 1;
     session::SessionManager& session_mgr_;

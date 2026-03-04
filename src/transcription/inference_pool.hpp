@@ -83,6 +83,12 @@ public:
         return queue_.size();
     }
 
+    /// Check if all submitted jobs have completed (queue empty + no active workers).
+    [[nodiscard]] bool drain_complete() const {
+        std::lock_guard lock(mutex_);
+        return queue_.empty() && active_jobs_.load(std::memory_order_acquire) == 0;
+    }
+
     /// Check if the backend is ready for inference.
     [[nodiscard]] bool backend_ready() const {
         return backend_.is_ready();
@@ -102,6 +108,7 @@ private:
             }
 
             // Run inference
+            active_jobs_.fetch_add(1, std::memory_order_acq_rel);
             spdlog::info("Inference starting: session={} samples={} window_start={}ms",
                 job.session_id, job.audio.size(), job.window_start_ms);
             auto t_start = std::chrono::steady_clock::now();
@@ -118,6 +125,7 @@ private:
                 job.on_complete(job.session_id, std::move(result),
                     job.window_start_ms, job.window_end_ms);
             }
+            active_jobs_.fetch_sub(1, std::memory_order_acq_rel);
         }
     }
 
@@ -127,6 +135,7 @@ private:
     mutable std::mutex mutex_;
     std::condition_variable cv_;
     std::atomic<bool> running_;
+    std::atomic<size_t> active_jobs_{0};
     size_t max_queue_size_;
 };
 
