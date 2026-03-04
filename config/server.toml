@@ -24,3 +24,4 @@ inference_threads = 4
 # Logging
 [logging]
 level = "info"
+# format = "json"  # "text" (default) or "json" for structured JSON logging

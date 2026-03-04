@@ -3,6 +3,7 @@
 #include "transcription/whisper_backend.hpp"
 #include "transcription/inference_pool.hpp"
 #include "config/config.hpp"
+#include "logging/json_formatter.hpp"
 #include <spdlog/spdlog.h>
 #include <csignal>
 #include <atomic>
@@ -33,6 +34,9 @@ int main(int /*argc*/, char* /*argv*/[]) {
 
     // Set up logging
     spdlog::set_level(parse_log_level(cfg.log_level));
+    if (cfg.log_format == "json") {
+        spdlog::set_formatter(std::make_unique<wss::logging::JsonFormatter>());
+    }
     spdlog::info("whisperx-streaming-server v0.1.0 starting...");
     spdlog::debug("Debug logging enabled (log_level={})", cfg.log_level);
 

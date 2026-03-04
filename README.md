@@ -623,7 +623,35 @@ All settings via environment variables (or `server.toml` with `WSS_CONFIG_PATH`)
 | `WSS_WINDOW_DURATION_MS` | `20000` | Default window duration |
 | `WSS_OVERLAP_DURATION_MS` | `2000` | Default window overlap |
 | `WSS_LOG_LEVEL` | `info` | Log level (trace/debug/info/warn/error) |
+| `WSS_LOG_FORMAT` | `text` | Log format: `text` (human-readable) or `json` (structured) |
 | `WSS_CONFIG_PATH` | `config/server.toml` | Path to TOML config file |
+
+---
+
+## Structured JSON Logging
+
+For log aggregation systems (Datadog, Loki, ELK, CloudWatch), enable JSON log output:
+
+```bash
+WSS_LOG_FORMAT=json ./transcription_server
+```
+
+Or in `server.toml`:
+
+```toml
+[logging]
+level = "info"
+format = "json"
+```
+
+**JSON output** (one object per line):
+
+```json
+{"level":"info","message":"whisperx-streaming-server v0.1.0 starting...","timestamp":"2026-03-03T23:23:16.957Z"}
+{"level":"debug","message":"Binary ingested: session=94a0d5 bytes=6400 written=3200","timestamp":"2026-03-03T23:33:54.283Z"}
+```
+
+Default format is `text` (human-readable) for backward compatibility.
 
 ---
 

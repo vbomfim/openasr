@@ -88,3 +88,17 @@ TEST(ServerConfig, SafeAtoi_Tests) {
     EXPECT_EQ(safe_atoi("abc", 7), 7);
     EXPECT_EQ(safe_atoi("", 99), 99);
 }
+
+// T12-11
+TEST(ServerConfig, DefaultLogFormat_IsText) {
+    ServerConfig cfg;
+    EXPECT_EQ(cfg.log_format, "text");
+}
+
+// T12-12
+TEST(ServerConfig, LogFormat_FromEnv) {
+    setenv("WSS_LOG_FORMAT", "json", 1);
+    auto cfg = ServerConfig::from_env();
+    EXPECT_EQ(cfg.log_format, "json");
+    unsetenv("WSS_LOG_FORMAT");
+}
