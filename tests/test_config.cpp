@@ -20,6 +20,7 @@ TEST(ServerConfig, DefaultValues_Correct) {
     EXPECT_EQ(cfg.window_duration_ms, 20000);
     EXPECT_EQ(cfg.overlap_duration_ms, 2000);
     EXPECT_EQ(cfg.inference_threads, 4);
+    EXPECT_FALSE(cfg.vad_enabled);
 }
 
 // T12-2

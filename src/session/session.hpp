@@ -28,12 +28,14 @@ public:
         int32_t overlap_duration_ms = 2000;
         std::string backend_model_id = "whisper-large-v3";
         float ring_buffer_seconds = 30.0f;
+        bool vad_enabled = false;
     };
 
     explicit Session(Config config)
         : config_(std::move(config))
         , pipeline_(config_.sample_rate, config_.ring_buffer_seconds)
-        , buffer_engine_(config_.window_duration_ms, config_.overlap_duration_ms) {
+        , buffer_engine_(config_.window_duration_ms, config_.overlap_duration_ms,
+                         config_.vad_enabled) {
         // Initialize Opus decoder if encoding is "opus"
         if (config_.encoding == "opus") {
             pipeline_.init_opus(config_.sample_rate);
@@ -48,12 +50,33 @@ public:
 
     /// Ingest raw audio bytes from a WebSocket binary frame.
     /// Thread-safe: may be called from I/O thread.
+    /// When VAD is enabled, also processes audio through the VAD detector.
     size_t ingest_audio(const uint8_t* data, size_t byte_count) {
         std::lock_guard lock(mutex_);
+        size_t total_before = pipeline_.ring_buffer().total_written();
+        size_t written;
         if (config_.encoding == "opus") {
-            return pipeline_.ingest_opus(data, byte_count);
+            written = pipeline_.ingest_opus(data, byte_count);
+        } else {
+            written = pipeline_.ingest_pcm(data, byte_count);
         }
-        return pipeline_.ingest_pcm(data, byte_count);
+
+        // Process new samples through VAD if enabled
+        if (config_.vad_enabled && written > 0) {
+            size_t total_after = pipeline_.ring_buffer().total_written();
+            size_t new_samples = total_after - total_before;
+            if (vad_scratch_.size() < new_samples) {
+                vad_scratch_.resize(new_samples);
+            }
+            // Extract only the newly written samples (offset 0 = most recent)
+            size_t extracted = pipeline_.ring_buffer().extract_window(
+                vad_scratch_.data(), new_samples, 0);
+            if (extracted > 0) {
+                buffer_engine_.process_vad(vad_scratch_.data(), extracted);
+            }
+        }
+
+        return written;
     }
 
     /// Set encoding (called once from speech.config handler).
@@ -157,6 +180,7 @@ private:
     std::string transcript_;
     int64_t last_audio_ms_ = 0;
     int64_t last_text_offset_ = 0;
+    std::vector<SampleFloat> vad_scratch_; // scratch buffer for VAD processing
 
     mutable std::mutex mutex_;
 };

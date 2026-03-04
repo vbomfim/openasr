@@ -14,6 +14,7 @@ TEST(MessagesTest, SpeechConfigPayload_DefaultValues) {
     EXPECT_EQ(p.window_duration_ms, 5000);
     EXPECT_EQ(p.overlap_duration_ms, 500);
     EXPECT_EQ(p.model_id, "whisper-tiny.en");
+    EXPECT_FALSE(p.vad_enabled);
     EXPECT_FALSE(p.resume_checkpoint.has_value());
 }
 
@@ -33,6 +34,7 @@ TEST(MessagesTest, SpeechConfigPayload_JsonRoundtrip) {
     orig.window_duration_ms = 10000;
     orig.overlap_duration_ms = 1000;
     orig.model_id = "whisper-large-v3";
+    orig.vad_enabled = true;
 
     json j = orig;
     auto rt = j.get<SpeechConfigPayload>();
@@ -43,6 +45,7 @@ TEST(MessagesTest, SpeechConfigPayload_JsonRoundtrip) {
     EXPECT_EQ(rt.window_duration_ms, orig.window_duration_ms);
     EXPECT_EQ(rt.overlap_duration_ms, orig.overlap_duration_ms);
     EXPECT_EQ(rt.model_id, orig.model_id);
+    EXPECT_EQ(rt.vad_enabled, orig.vad_enabled);
     EXPECT_FALSE(rt.resume_checkpoint.has_value());
 }
 
@@ -80,6 +83,29 @@ TEST(MessagesTest, SpeechConfigPayload_NullCheckpoint_Roundtrip) {
 
     auto rt = j.get<SpeechConfigPayload>();
     EXPECT_FALSE(rt.resume_checkpoint.has_value());
+    EXPECT_FALSE(rt.vad_enabled);
+}
+
+TEST(MessagesTest, SpeechConfigPayload_MissingVadEnabled_DefaultsFalse) {
+    // Simulate a client that doesn't send vad_enabled (backward compat)
+    json j = {
+        {"language", "en"},
+        {"sample_rate", 16000},
+        {"encoding", "pcm_s16le"},
+        {"window_duration_ms", 5000},
+        {"overlap_duration_ms", 500}
+    };
+    auto rt = j.get<SpeechConfigPayload>();
+    EXPECT_FALSE(rt.vad_enabled);
+}
+
+TEST(MessagesTest, SpeechConfigPayload_VadEnabled_True_Roundtrip) {
+    SpeechConfigPayload orig;
+    orig.vad_enabled = true;
+    json j = orig;
+    EXPECT_TRUE(j["vad_enabled"].get<bool>());
+    auto rt = j.get<SpeechConfigPayload>();
+    EXPECT_TRUE(rt.vad_enabled);
 }
 
 TEST(MessagesTest, HypothesisPayload_JsonRoundtrip) {

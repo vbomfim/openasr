@@ -13,6 +13,7 @@ add_executable(openasr_tests
     test_config.cpp
     test_connection.cpp
     test_json_formatter.cpp
+    test_vad.cpp
 )
 
 target_include_directories(openasr_tests PRIVATE
