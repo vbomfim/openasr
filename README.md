@@ -627,18 +627,91 @@ All settings via environment variables (or `server.toml` with `WSS_CONFIG_PATH`)
 ## Health Check
 
 ```
-GET /health
+GET /health     # liveness probe
+GET /ready      # readiness probe (checks model loaded + queue capacity)
 ```
 
-Returns JSON with server status (no authentication required):
+Returns JSON (no authentication required):
 
 ```json
-{
-  "status": "ok",
-  "active_sessions": 3,
-  "max_sessions": 20,
-  "inference_pending": 1
-}
+// /health
+{"status": "ok", "active_sessions": 3, "max_sessions": 20, "inference_pending": 1}
+
+// /ready
+{"status": "ready", "model_ready": true, "queue_ok": true, "sessions_available": true}
+```
+
+---
+
+## Prometheus Metrics
+
+```
+GET /metrics
+```
+
+Returns metrics in [Prometheus text format](https://prometheus.io/docs/instrumenting/exposition_formats/) (no authentication required). Scrape interval recommendation: 15s.
+
+### Gauges (current state)
+
+| Metric | Description |
+|--------|-------------|
+| `openasr_active_sessions` | Current number of transcription sessions |
+| `openasr_active_connections` | Current WebSocket connections |
+| `openasr_inference_queue_depth` | Inference jobs waiting in queue |
+
+### Counters (monotonically increasing)
+
+| Metric | Description |
+|--------|-------------|
+| `openasr_connections_total` | Total WebSocket connections |
+| `openasr_connections_rejected_auth_total` | Connections rejected (401 Unauthorized) |
+| `openasr_connections_rejected_limit_total` | Connections rejected (limit reached) |
+| `openasr_sessions_created_total` | Sessions created |
+| `openasr_sessions_destroyed_total` | Sessions destroyed |
+| `openasr_audio_bytes_received_total` | Audio data received (bytes) |
+| `openasr_audio_chunks_received_total` | Binary WebSocket frames received |
+| `openasr_inference_jobs_submitted_total` | Inference jobs submitted to thread pool |
+| `openasr_inference_jobs_completed_total` | Inference jobs completed successfully |
+| `openasr_inference_jobs_dropped_total` | Inference jobs dropped (queue full) |
+| `openasr_transcription_segments_total` | Transcription segments produced |
+| `openasr_errors_total` | Errors sent to clients |
+| `openasr_backpressure_events_total` | Backpressure signals sent |
+
+### Histograms (latency distribution)
+
+| Metric | Buckets | Description |
+|--------|---------|-------------|
+| `openasr_inference_duration_seconds` | 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120s | Per-window inference time |
+| `openasr_audio_window_duration_seconds` | 1, 2, 5, 10, 20, 30, 60s | Audio window size |
+
+### Prometheus scrape config
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: openasr
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["openasr-server:9090"]
+```
+
+### Example Grafana queries
+
+```promql
+# Request rate (connections/sec)
+rate(openasr_connections_total[5m])
+
+# Inference latency p95
+histogram_quantile(0.95, rate(openasr_inference_duration_seconds_bucket[5m]))
+
+# Error rate (%)
+rate(openasr_errors_total[5m]) / rate(openasr_connections_total[5m]) * 100
+
+# Audio throughput (MB/sec)
+rate(openasr_audio_bytes_received_total[5m]) / 1024 / 1024
+
+# Queue saturation
+openasr_inference_queue_depth / 100  # queue limit is 100
 ```
 
 ---
