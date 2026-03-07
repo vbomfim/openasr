@@ -44,7 +44,7 @@ include(FetchContent)
 FetchContent_Declare(
     json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.11.3
+    GIT_TAG        9cca280a4d0ccf0c08f47a99aa71d1b0e52f8d03  # v3.11.3
     GIT_SHALLOW    TRUE
 )
 set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
@@ -54,7 +54,7 @@ FetchContent_MakeAvailable(json)
 FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG        v1.15.1
+    GIT_TAG        f355b3d58f7067eee1706ff3c801c2361011f3d5  # v1.15.1
     GIT_SHALLOW    TRUE
 )
 set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
@@ -64,7 +64,7 @@ FetchContent_MakeAvailable(spdlog)
 FetchContent_Declare(
     tomlplusplus
     GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
-    GIT_TAG        v3.4.0
+    GIT_TAG        30172438cee64926dc41fdd9c11fb3ba5b2ba9de  # v3.4.0
     GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(tomlplusplus)
@@ -73,7 +73,7 @@ FetchContent_MakeAvailable(tomlplusplus)
 FetchContent_Declare(
     prometheus_cpp
     GIT_REPOSITORY https://github.com/jupp0r/prometheus-cpp.git
-    GIT_TAG v1.3.0
+    GIT_TAG e5fada43131d251e9c4786b04263ce98b6767ba5  # v1.3.0
     GIT_SHALLOW TRUE
 )
 set(ENABLE_PUSH OFF CACHE BOOL "" FORCE)
@@ -92,7 +92,7 @@ if(NOT OPUS_FOUND)
     FetchContent_Declare(
         opus
         GIT_REPOSITORY https://gitlab.xiph.org/xiph/opus.git
-        GIT_TAG        v1.5.2
+        GIT_TAG        ddbe48383984d56acd9e1ab6a090c54ca6b735a6  # v1.5.2
         GIT_SHALLOW    TRUE
     )
     set(OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
@@ -109,7 +109,7 @@ if(NOT SAMPLERATE_FOUND)
     FetchContent_Declare(
         libsamplerate
         GIT_REPOSITORY https://github.com/libsndfile/libsamplerate.git
-        GIT_TAG        0.2.2
+        GIT_TAG        c96f5e3de9c4488f4e6c97f59f5245f22fda22f7  # 0.2.2
         GIT_SHALLOW    TRUE
     )
     set(LIBSAMPLERATE_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -207,7 +207,7 @@ if(BUILD_TESTS)
     FetchContent_Declare(
         googletest
         GIT_REPOSITORY https://github.com/google/googletest.git
-        GIT_TAG v1.15.2
+        GIT_TAG b514bdc898e2951020cbdca1304b75f5950d1f59  # v1.15.2
         GIT_SHALLOW TRUE
     )
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
