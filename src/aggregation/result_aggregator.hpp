@@ -41,15 +41,16 @@ public:
     }
 
     /// Build the full transcript string from accumulated segments (cached).
+    /// Incrementally appends only new segments since the last call.
     [[nodiscard]] const std::string& full_transcript() const {
         if (transcript_dirty_) {
-            cached_transcript_.clear();
-            for (const auto& seg : all_segments_) {
-                if (!cached_transcript_.empty() && !seg.text.empty()) {
+            for (size_t i = cached_segment_count_; i < all_segments_.size(); ++i) {
+                if (!cached_transcript_.empty() && !all_segments_[i].text.empty()) {
                     cached_transcript_ += ' ';
                 }
-                cached_transcript_ += seg.text;
+                cached_transcript_ += all_segments_[i].text;
             }
+            cached_segment_count_ = all_segments_.size();
             transcript_dirty_ = false;
         }
         return cached_transcript_;
@@ -70,7 +71,9 @@ public:
     void reset() {
         all_segments_.clear();
         last_non_overlap_end_ms_ = 0;
-        transcript_dirty_ = true;
+        cached_transcript_.clear();
+        cached_segment_count_ = 0;
+        transcript_dirty_ = false;
     }
 
 private:
@@ -78,8 +81,6 @@ private:
     int64_t last_non_overlap_end_ms_ = 0;
     mutable std::string cached_transcript_;
     mutable size_t cached_segment_count_ = 0;
-    mutable bool transcript_dirty_ = true;
-    mutable std::string cached_transcript_;
     mutable bool transcript_dirty_ = true;
 };
 
