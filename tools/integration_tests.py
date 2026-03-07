@@ -33,6 +33,8 @@ API_KEY: str = ""
 def _http_base_url() -> str:
     """Derive http(s) base URL from the WebSocket URL."""
     parsed = urlparse(SERVER_URL)
+    if parsed.scheme not in ("ws", "wss"):
+        raise ValueError(f"SERVER_URL must use ws:// or wss:// scheme, got: {parsed.scheme}")
     scheme = "https" if parsed.scheme == "wss" else "http"
     return f"{scheme}://{parsed.netloc}"
 
