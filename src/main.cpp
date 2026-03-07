@@ -14,7 +14,8 @@ static std::atomic<bool> g_running{true};
 
 static void signal_handler(int signum) {
     const char msg[] = "Shutdown signal received\n";
-    (void)write(STDERR_FILENO, msg, sizeof(msg) - 1);
+    ssize_t ret = write(STDERR_FILENO, msg, sizeof(msg) - 1);
+    (void)ret;
     g_running.store(false, std::memory_order_release);
     // Restore default handler and re-raise so the process terminates
     // even if no event loop checks g_running.

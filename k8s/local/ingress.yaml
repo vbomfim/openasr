@@ -10,7 +10,7 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
     nginx.ingress.kubernetes.io/limit-connections: "20"
     nginx.ingress.kubernetes.io/limit-rps: "50"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"  # Uncomment when TLS is configured below
 spec:
   ingressClassName: nginx
   rules:
@@ -24,8 +24,11 @@ spec:
                 name: whisperx-server
                 port:
                   number: 9090
-  # Uncomment for production TLS (requires cert-manager or manual secret):
+  # --- TLS configuration (uncomment to enable HTTPS) ---
+  # 1. Create a TLS secret: kubectl create secret tls whisperx-tls --cert=cert.pem --key=key.pem -n whisperx
+  # 2. Uncomment the tls block below
+  # 3. Uncomment the ssl-redirect annotation above
   # tls:
   #   - hosts:
-  #       - whisperx.example.com
-  #     secretName: whisperx-tls-cert
+  #       - whisperx.local
+  #     secretName: whisperx-tls
