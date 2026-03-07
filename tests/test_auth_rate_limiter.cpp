@@ -66,8 +66,8 @@ TEST(AuthRateLimiterTest, WindowExpires_ResetsCount) {
     }
     ASSERT_TRUE(limiter.is_blocked("10.0.0.4"));
 
-    // Wait for window to expire
-    std::this_thread::sleep_for(1100ms);
+    // Wait for window to expire (500ms margin for slow CI)
+    std::this_thread::sleep_for(1500ms);
 
     // Window expired → is_blocked should return false
     EXPECT_FALSE(limiter.is_blocked("10.0.0.4"));
@@ -87,8 +87,8 @@ TEST(AuthRateLimiterTest, Cleanup_RemovesExpired) {
     limiter.check_and_record_failure("10.0.0.5");
     limiter.check_and_record_failure("10.0.0.6");
 
-    // Wait for the window to expire
-    std::this_thread::sleep_for(1100ms);
+    // Wait for the window to expire (500ms margin for slow CI)
+    std::this_thread::sleep_for(1500ms);
 
     limiter.cleanup();
 

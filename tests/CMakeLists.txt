@@ -19,6 +19,8 @@ add_executable(openasr_tests
     test_ip_extraction.cpp
     test_rate_limiter_capacity.cpp
     test_constant_time.cpp
+    test_inference_pool.cpp
+    test_websocket_server_unit.cpp
 )
 
 target_include_directories(openasr_tests PRIVATE
@@ -43,6 +45,10 @@ get_target_property(_whisper_inc whisper INTERFACE_INCLUDE_DIRECTORIES)
 if(_whisper_inc)
     target_include_directories(openasr_tests SYSTEM PRIVATE ${_whisper_inc})
 endif()
+get_target_property(_prom_inc prometheus-cpp::core INTERFACE_INCLUDE_DIRECTORIES)
+if(_prom_inc)
+    target_include_directories(openasr_tests SYSTEM PRIVATE ${_prom_inc})
+endif()
 
 target_link_libraries(openasr_tests PRIVATE
     GTest::gtest_main
@@ -50,6 +56,7 @@ target_link_libraries(openasr_tests PRIVATE
     spdlog::spdlog
     tomlplusplus::tomlplusplus
     whisper
+    prometheus-cpp::core
 )
 
 # Link opus and samplerate for audio tests
