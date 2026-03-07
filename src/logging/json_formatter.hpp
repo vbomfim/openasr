@@ -8,6 +8,17 @@
 
 namespace wss::logging {
 
+/// Portable gmtime wrapper (gmtime_r on POSIX, gmtime_s on Windows).
+inline std::tm safe_gmtime(const std::time_t* time) {
+    std::tm result{};
+#ifdef _WIN32
+    gmtime_s(&result, time);
+#else
+    gmtime_r(time, &result);
+#endif
+    return result;
+}
+
 /// Custom spdlog formatter that outputs one JSON object per log line.
 /// Compatible with Datadog, Loki, CloudWatch, and ELK log parsers.
 ///
@@ -45,8 +56,7 @@ private:
 
         std::time_t tt = std::chrono::system_clock::to_time_t(
             std::chrono::system_clock::time_point(secs));
-        std::tm gmt{};
-        gmtime_r(&tt, &gmt);
+        std::tm gmt = safe_gmtime(&tt);
 
         // "2026-03-03T23:33:54.283Z"
         char buf[64];

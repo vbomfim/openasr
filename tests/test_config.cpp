@@ -98,8 +98,16 @@ TEST(ServerConfig, DefaultLogFormat_IsText) {
 
 // T12-12
 TEST(ServerConfig, LogFormat_FromEnv) {
+#ifdef _WIN32
+    _putenv_s("WSS_LOG_FORMAT", "json");
+#else
     setenv("WSS_LOG_FORMAT", "json", 1);
+#endif
     auto cfg = ServerConfig::from_env();
     EXPECT_EQ(cfg.log_format, "json");
+#ifdef _WIN32
+    _putenv_s("WSS_LOG_FORMAT", "");
+#else
     unsetenv("WSS_LOG_FORMAT");
+#endif
 }
