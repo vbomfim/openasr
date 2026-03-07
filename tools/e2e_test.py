@@ -37,16 +37,15 @@ async def run_e2e_test(server_url: str, wav_path: str, api_key: str = "") -> boo
     texts = []
 
     async with websockets.connect(server_url, additional_headers=headers or None) as ws:
-        # Send config
+        # Send config with a small window so inference runs during streaming
         config = {
             "type": "speech.config",
             "payload": {
                 "language": "en",
                 "sample_rate": sample_rate,
                 "encoding": "pcm_s16le",
-                "window_duration_ms": 5000,
-                "overlap_duration_ms": 500,
-                "model_id": "whisper-tiny.en",
+                "window_duration_ms": 2000,
+                "overlap_duration_ms": 200,
             },
         }
         await ws.send(json.dumps(config))
@@ -55,44 +54,54 @@ async def run_e2e_test(server_url: str, wav_path: str, api_key: str = "") -> boo
         print(f"← {ack_msg['type']}")
         assert ack_msg["type"] != "speech.error", f"Config failed: {ack_msg}"
 
-        # Send audio in 200ms chunks
-        chunk_size = sample_rate * 2 * 200 // 1000
-        offset = 0
-        chunks = 0
-        while offset < len(pcm_data):
-            end = min(offset + chunk_size, len(pcm_data))
-            await ws.send(pcm_data[offset:end])
-            offset = end
-            chunks += 1
+        # Concurrent receiver: collects transcription results while audio streams
+        async def receive_results():
+            try:
+                while True:
+                    resp = await asyncio.wait_for(ws.recv(), timeout=30)
+                    if isinstance(resp, bytes):
+                        continue
+                    msg = json.loads(resp)
+                    msg_type = msg["type"]
+                    payload = msg.get("payload", {})
 
-        print(f"→ Sent {chunks} audio chunks")
+                    if msg_type in ("speech.phrase", "speech.hypothesis"):
+                        text = payload.get("text", "")
+                        if text.strip():
+                            texts.append(text.strip())
+                            print(f"  ← {msg_type}: {text}")
+                    elif msg_type == "speech.error":
+                        print(f"  ← ERROR: {payload}")
+                    elif msg_type == "speech.checkpoint":
+                        print(f"  ← {msg_type}")
+                    else:
+                        print(f"  ← {msg_type}")
+            except (asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
+                pass
 
-        # Send end
-        await ws.send(json.dumps({"type": "speech.end", "payload": {}}))
-        print("→ speech.end sent")
+        # Sender: streams audio at real-time rate
+        async def send_audio():
+            chunk_duration_s = 0.2
+            chunk_size = int(sample_rate * 2 * chunk_duration_s)
+            offset = 0
+            chunks = 0
+            while offset < len(pcm_data):
+                end = min(offset + chunk_size, len(pcm_data))
+                await ws.send(pcm_data[offset:end])
+                offset = end
+                chunks += 1
+                await asyncio.sleep(chunk_duration_s)
 
-        # Collect responses
-        try:
-            while True:
-                resp = await asyncio.wait_for(ws.recv(), timeout=30)
-                if isinstance(resp, bytes):
-                    continue
-                msg = json.loads(resp)
-                msg_type = msg["type"]
-                payload = msg.get("payload", {})
+            print(f"→ Sent {chunks} audio chunks (real-time pacing)")
 
-                if msg_type in ("speech.phrase", "speech.hypothesis"):
-                    text = payload.get("text", "")
-                    if text.strip():
-                        texts.append(text.strip())
-                        print(f"← {msg_type}: {text}")
-                elif msg_type == "speech.error":
-                    print(f"← ERROR: {payload}")
-                    return False
-                else:
-                    print(f"← {msg_type}")
-        except (asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
-            pass
+            # Wait for in-flight inference to finish before ending session
+            await asyncio.sleep(3)
+
+            await ws.send(json.dumps({"type": "speech.end", "payload": {}}))
+            print("→ speech.end sent")
+
+        # Run sender and receiver concurrently
+        await asyncio.gather(send_audio(), receive_results())
 
     if texts:
         print(f"\n✓ E2E test passed: {len(texts)} transcription segment(s)")
