@@ -6,7 +6,7 @@ Sends a WAV file through the WebSocket protocol and verifies
 that the server produces non-empty transcription text.
 
 Usage:
-    python e2e_test.py --server-url ws://localhost:9090/transcribe --wav test.wav
+    python e2e_test.py --server-url wss://localhost:9090/transcribe --wav test.wav
 """
 
 import argparse
@@ -115,8 +115,8 @@ def main():
     parser = argparse.ArgumentParser(description="E2E transcription test for OpenASR")
     parser.add_argument(
         "--server-url",
-        default=os.environ.get("OPENASR_WS_URL", "ws://localhost:9090/transcribe"),
-        help="WebSocket endpoint (default: ws://localhost:9090/transcribe)",
+        default=os.environ.get("OPENASR_WS_URL", "wss://localhost:9090/transcribe"),
+        help="WebSocket endpoint (default: wss://localhost:9090/transcribe)",
     )
     parser.add_argument(
         "--wav",

@@ -412,7 +412,7 @@ async def run_benchmark(
 
 def main():
     parser = argparse.ArgumentParser(description="OpenASR Benchmark")
-    parser.add_argument("--server-url", default="ws://whisperx.local/transcribe",
+    parser.add_argument("--server-url", default="wss://whisperx.local/transcribe",
                         help="WebSocket URL")
     parser.add_argument("--api-key", default=os.environ.get("WSS_API_KEY", ""),
                         help="API key")

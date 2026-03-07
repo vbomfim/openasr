@@ -17,7 +17,7 @@ import wave
 
 import websockets
 
-DEFAULT_URL = "ws://localhost:9090/transcribe"
+DEFAULT_URL = "wss://localhost:9090/transcribe"
 CHUNK_DURATION_MS = 200  # send 200ms chunks
 
 
