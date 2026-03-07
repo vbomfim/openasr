@@ -86,13 +86,21 @@ int main(int /*argc*/, char* /*argv*/[]) {
     wss::transcription::InferencePool inference_pool(
         *backend, static_cast<size_t>(cfg.inference_threads));
     wss::session::SessionManager session_mgr(cfg.max_sessions);
-    wss::server::WebSocketServer server(cfg.port, session_mgr, inference_pool, cfg.api_key, cfg.io_threads);
+    wss::server::WebSocketServer server(
+        cfg.port, session_mgr, inference_pool, cfg.api_key, cfg.io_threads,
+        wss::server::WebSocketServer::TlsConfig(),
+        cfg.auth_rate_limit_max_failures, cfg.auth_rate_limit_window_secs,
+        cfg.msg_rate_limit_max_per_sec, cfg.msg_rate_limit_max_bytes_per_sec);
 
     if (cfg.api_key.empty()) {
         spdlog::warn("WSS_API_KEY not set — authentication disabled (dev mode)");
     } else {
         spdlog::info("API key authentication enabled");
+        spdlog::info("Auth rate limit: {} failures per {}s window",
+            cfg.auth_rate_limit_max_failures, cfg.auth_rate_limit_window_secs);
     }
+    spdlog::info("Message rate limit: {} msgs/s, {} bytes/s per session",
+        cfg.msg_rate_limit_max_per_sec, cfg.msg_rate_limit_max_bytes_per_sec);
 
     spdlog::info("Starting server...");
     server.run();

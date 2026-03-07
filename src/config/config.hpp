@@ -53,6 +53,12 @@ struct ServerConfig {
     std::string api_key; // if empty, auth is disabled (dev mode)
     bool require_auth = false; // set via WSS_REQUIRE_AUTH=true
 
+    // Rate limiting (#20, #21)
+    int auth_rate_limit_max_failures = 10;  // per IP, per window
+    int auth_rate_limit_window_secs = 60;   // sliding window in seconds
+    int msg_rate_limit_max_per_sec = 100;   // max messages/sec per session
+    int msg_rate_limit_max_bytes_per_sec = 640000; // max bytes/sec per session
+
     /// Load configuration from environment variables.
     static ServerConfig from_env() {
         ServerConfig cfg;
@@ -77,6 +83,14 @@ struct ServerConfig {
         if (auto* v = std::getenv("WSS_REQUIRE_AUTH")) {
             cfg.require_auth = (std::string(v) == "true" || std::string(v) == "1");
         }
+        if (auto* v = std::getenv("WSS_AUTH_RATE_LIMIT_MAX"))
+            cfg.auth_rate_limit_max_failures = safe_atoi(v, cfg.auth_rate_limit_max_failures);
+        if (auto* v = std::getenv("WSS_AUTH_RATE_LIMIT_WINDOW"))
+            cfg.auth_rate_limit_window_secs = safe_atoi(v, cfg.auth_rate_limit_window_secs);
+        if (auto* v = std::getenv("WSS_MSG_RATE_LIMIT_MAX"))
+            cfg.msg_rate_limit_max_per_sec = safe_atoi(v, cfg.msg_rate_limit_max_per_sec);
+        if (auto* v = std::getenv("WSS_MSG_RATE_LIMIT_BYTES"))
+            cfg.msg_rate_limit_max_bytes_per_sec = safe_atoi(v, cfg.msg_rate_limit_max_bytes_per_sec);
 
         return cfg;
     }
@@ -160,6 +174,14 @@ struct ServerConfig {
         if (auto* v = std::getenv("WSS_REQUIRE_AUTH")) {
             cfg.require_auth = (std::string(v) == "true" || std::string(v) == "1");
         }
+        if (auto* v = std::getenv("WSS_AUTH_RATE_LIMIT_MAX"))
+            cfg.auth_rate_limit_max_failures = safe_atoi(v, cfg.auth_rate_limit_max_failures);
+        if (auto* v = std::getenv("WSS_AUTH_RATE_LIMIT_WINDOW"))
+            cfg.auth_rate_limit_window_secs = safe_atoi(v, cfg.auth_rate_limit_window_secs);
+        if (auto* v = std::getenv("WSS_MSG_RATE_LIMIT_MAX"))
+            cfg.msg_rate_limit_max_per_sec = safe_atoi(v, cfg.msg_rate_limit_max_per_sec);
+        if (auto* v = std::getenv("WSS_MSG_RATE_LIMIT_BYTES"))
+            cfg.msg_rate_limit_max_bytes_per_sec = safe_atoi(v, cfg.msg_rate_limit_max_bytes_per_sec);
 
         return cfg;
     }
