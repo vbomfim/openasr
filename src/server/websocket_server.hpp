@@ -708,7 +708,7 @@ private:
         if (!session) return;
 
         // Use ResultAggregator for overlap deduplication
-        session->add_transcription_result(result.segments, window_start_ms, window_end_ms);
+        session->add_transcription_result(result.segments, window_end_ms);
         session->set_last_audio_ms(window_end_ms);
 
         spdlog::info("Transcription complete: session={} window=[{}ms, {}ms] segments={}",

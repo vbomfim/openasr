@@ -13,7 +13,7 @@ class ResultAggregator {
 public:
     /// Add segments from a new window. Deduplicates against previous window's overlap.
     void add_window(const std::vector<transcription::Segment>& segments,
-                    int64_t window_start_ms, int64_t window_end_ms) {
+                    int64_t window_end_ms) {
         if (segments.empty()) return;
 
         if (all_segments_.empty()) {
@@ -28,11 +28,10 @@ public:
             }
         }
 
-        // Track the non-overlap boundary for next window
-        // If overlap exists, the stable boundary is window_end minus any overlap
+        // Track the boundary for the next window's dedup filter.
+        // Segments in the next window with start_ms < this value are dropped.
         last_non_overlap_end_ms_ = window_end_ms;
         transcript_dirty_ = true;
-        (void)window_start_ms;
     }
 
     /// Get all accumulated segments.

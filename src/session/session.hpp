@@ -6,6 +6,7 @@
 #include "protocol/messages.hpp"
 #include "common.hpp"
 #include <spdlog/spdlog.h>
+#include <atomic>
 #include <memory>
 #include <string>
 #include <mutex>
@@ -116,20 +117,20 @@ public:
 
     /// Add transcription segments via the ResultAggregator (handles overlap dedup).
     void add_transcription_result(const std::vector<transcription::Segment>& segments,
-                                  int64_t window_start_ms, int64_t window_end_ms) {
+                                  int64_t window_end_ms) {
         std::lock_guard lock(mutex_);
         if (transcript_.size() > kMaxTranscriptLength) {
             spdlog::warn("Transcript limit reached for session {}", config_.session_id);
             return;
         }
-        aggregator_.add_window(segments, window_start_ms, window_end_ms);
+        aggregator_.add_window(segments, window_end_ms);
         transcript_ = aggregator_.full_transcript();
         last_text_offset_ = static_cast<int64_t>(transcript_.size());
     }
 
-    /// Update last processed audio position.
+    /// Update last processed audio position (thread-safe).
     void set_last_audio_ms(int64_t ms) {
-        last_audio_ms_ = ms;
+        last_audio_ms_.store(ms, std::memory_order_release);
     }
 
     /// Build a checkpoint from current state.
@@ -137,7 +138,7 @@ public:
         std::lock_guard lock(mutex_);
         return {
             .session_id = config_.session_id,
-            .last_audio_ms = last_audio_ms_,
+            .last_audio_ms = last_audio_ms_.load(std::memory_order_acquire),
             .last_text_offset = last_text_offset_,
             .full_transcript = transcript_,
             .buffer_config = {
@@ -151,7 +152,7 @@ public:
     /// Restore from checkpoint (for session resume).
     void restore_from_checkpoint(const protocol::CheckpointData& cp) {
         std::lock_guard lock(mutex_);
-        last_audio_ms_ = cp.last_audio_ms;
+        last_audio_ms_.store(cp.last_audio_ms, std::memory_order_release);
         last_text_offset_ = cp.last_text_offset;
         transcript_ = cp.full_transcript;
         pipeline_.reset();
@@ -161,7 +162,7 @@ public:
     [[nodiscard]] const Config& config() const { return config_; }
     [[nodiscard]] const std::string& session_id() const { return config_.session_id; }
     [[nodiscard]] const std::string& transcript() const { return transcript_; }
-    [[nodiscard]] int64_t last_audio_ms() const { return last_audio_ms_; }
+    [[nodiscard]] int64_t last_audio_ms() const { return last_audio_ms_.load(std::memory_order_acquire); }
     [[nodiscard]] float ring_buffer_fill_ratio() const {
         return pipeline_.ring_buffer().fill_ratio();
     }
@@ -179,7 +180,7 @@ private:
     aggregation::ResultAggregator aggregator_;
 
     std::string transcript_;
-    int64_t last_audio_ms_ = 0;
+    std::atomic<int64_t> last_audio_ms_{0};
     int64_t last_text_offset_ = 0;
     std::vector<SampleFloat> vad_scratch_; // scratch buffer for VAD processing
 
