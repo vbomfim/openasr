@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestFragment guiclass="TestFragmentControllerGui" testclass="TestFragmentController" testname="WS Send Audio" enabled="false">
+      <stringProp name="TestFragment.comments">Reads audio from a raw PCM file and sends it as binary WebSocket frames at real-time rate</stringProp>
+    </TestFragment>
+    <hashTree>
+
+      <!-- Calculate number of chunks: file_size / chunk_size -->
+      <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="Load Audio File" enabled="true">
+        <stringProp name="scriptLanguage">groovy</stringProp>
+        <stringProp name="script">
+import java.nio.file.Files
+import java.nio.file.Paths
+
+def audioFilePath = props.get("audio.file") ?: "data/audio/sample-short-5s.raw"
+def chunkSize = (props.get("audio.chunk_size_bytes") ?: "6400") as int
+
+// Read the entire audio file
+def audioBytes = Files.readAllBytes(Paths.get(audioFilePath))
+vars.putObject("audioBytes", audioBytes)
+vars.put("audioFileSize", audioBytes.length.toString())
+vars.put("chunkSize", chunkSize.toString())
+
+// Calculate number of chunks
+def numChunks = (int) Math.ceil(audioBytes.length / (double) chunkSize)
+vars.put("numChunks", numChunks.toString())
+
+log.info("Audio loaded: ${audioBytes.length} bytes, ${numChunks} chunks of ${chunkSize} bytes")
+SampleResult.setResponseData("Loaded ${audioBytes.length} bytes, ${numChunks} chunks", "UTF-8")
+SampleResult.setSuccessful(true)
+        </stringProp>
+      </JSR223Sampler>
+      <hashTree/>
+
+      <!-- Loop: send each chunk as a binary frame -->
+      <LoopController guiclass="LoopControlPanel" testclass="LoopController" testname="Audio Chunk Loop" enabled="true">
+        <stringProp name="LoopController.loops">${numChunks}</stringProp>
+        <boolProp name="LoopController.continue_forever">false</boolProp>
+      </LoopController>
+      <hashTree>
+        <!-- Extract and send the current chunk -->
+        <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="Prepare Audio Chunk" enabled="true">
+          <stringProp name="scriptLanguage">groovy</stringProp>
+          <stringProp name="script">
+def audioBytes = vars.getObject("audioBytes") as byte[]
+def chunkSize = vars.get("chunkSize") as int
+def loopIndex = vars.get("__jm__Audio Chunk Loop__idx") as int
+
+def offset = loopIndex * chunkSize
+def remaining = Math.min(chunkSize, audioBytes.length - offset)
+
+if (remaining > 0) {
+    def chunk = new byte[remaining]
+    System.arraycopy(audioBytes, offset, chunk, 0, remaining)
+    vars.putObject("currentChunk", chunk)
+    SampleResult.setSuccessful(true)
+    SampleResult.setResponseData("Chunk ${loopIndex}: ${remaining} bytes (offset ${offset})", "UTF-8")
+} else {
+    SampleResult.setSuccessful(true)
+    SampleResult.setResponseData("No more audio data", "UTF-8")
+}
+          </stringProp>
+        </JSR223Sampler>
+        <hashTree/>
+
+        <!-- Send binary frame -->
+        <eu.luminis.jmeter.wssampler.SingleWriteWebSocketSampler guiclass="eu.luminis.jmeter.wssampler.SingleWriteWebSocketSamplerGui" testclass="eu.luminis.jmeter.wssampler.SingleWriteWebSocketSampler" testname="Send Audio Chunk (binary)" enabled="true">
+          <boolProp name="createNewConnection">false</boolProp>
+          <boolProp name="binaryPayload">true</boolProp>
+          <!-- Binary data is set via JSR223 PreProcessor below -->
+        </eu.luminis.jmeter.wssampler.SingleWriteWebSocketSampler>
+        <hashTree>
+          <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="Set Binary Payload" enabled="true">
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="script">
+def chunk = vars.getObject("currentChunk") as byte[]
+if (chunk != null) {
+    sampler.setBinaryContent(chunk)
+}
+            </stringProp>
+          </JSR223PreProcessor>
+          <hashTree/>
+        </hashTree>
+
+        <!-- Real-time pacing: wait chunk_interval_ms between sends -->
+        <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="Real-time Pacing" enabled="true">
+          <stringProp name="ConstantTimer.delay">${__P(audio.chunk_interval_ms,200)}</stringProp>
+        </ConstantTimer>
+        <hashTree/>
+      </hashTree>
+
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>

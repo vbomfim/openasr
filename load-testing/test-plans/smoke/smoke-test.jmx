@@ -1,0 +1,380 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="OpenASR Smoke Test" enabled="true">
+      <stringProp name="TestPlan.comments">Quick sanity check: 3 sessions, 1 min. Verifies WS handshake, speech.config, audio-to-transcript roundtrip.</stringProp>
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+      <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments">
+        <collectionProp name="Arguments.arguments"/>
+      </elementProp>
+    </TestPlan>
+    <hashTree>
+
+      <!-- ═══ Thread Group: WebSocket Transcription Sessions ═══ -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Smoke - WS Sessions" enabled="true">
+        <stringProp name="ThreadGroup.num_threads">${__P(concurrent.sessions,3)}</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">${__P(ramp.up.seconds,10)}</stringProp>
+        <boolProp name="ThreadGroup.scheduler">true</boolProp>
+        <stringProp name="ThreadGroup.duration">${__P(test.duration.seconds,60)}</stringProp>
+        <stringProp name="ThreadGroup.delay">0</stringProp>
+        <stringProp name="ThreadGroup.on_sample_error">startnextloop</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <intProp name="LoopController.loops">1</intProp>
+        </elementProp>
+      </ThreadGroup>
+      <hashTree>
+
+        <!-- Transaction: Full Transcription Session -->
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="Transcription Session" enabled="true">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <boolProp name="TransactionController.parent">true</boolProp>
+        </TransactionController>
+        <hashTree>
+
+          <!-- ─── Step 1: Open WebSocket ─── -->
+          <eu.luminis.jmeter.wssampler.OpenWebSocketSampler guiclass="eu.luminis.jmeter.wssampler.OpenWebSocketSamplerGui" testclass="eu.luminis.jmeter.wssampler.OpenWebSocketSampler" testname="WS Open /transcribe" enabled="true">
+            <stringProp name="server">${__P(target.host,localhost)}</stringProp>
+            <stringProp name="port">${__P(target.port,30090)}</stringProp>
+            <stringProp name="path">/transcribe</stringProp>
+            <boolProp name="TLS">false</boolProp>
+            <stringProp name="connectTimeout">5000</stringProp>
+            <stringProp name="readTimeout">10000</stringProp>
+          </eu.luminis.jmeter.wssampler.OpenWebSocketSampler>
+          <hashTree>
+            <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Auth Header" enabled="true">
+              <collectionProp name="HeaderManager.headers">
+                <elementProp name="" elementType="Header">
+                  <stringProp name="Header.name">Authorization</stringProp>
+                  <stringProp name="Header.value">Bearer ${__P(auth.token,)}</stringProp>
+                </elementProp>
+              </collectionProp>
+            </HeaderManager>
+            <hashTree/>
+          </hashTree>
+
+          <!-- ─── Step 2: Send speech.config ─── -->
+          <eu.luminis.jmeter.wssampler.SingleWriteWebSocketSampler guiclass="eu.luminis.jmeter.wssampler.SingleWriteWebSocketSamplerGui" testclass="eu.luminis.jmeter.wssampler.SingleWriteWebSocketSampler" testname="Send speech.config" enabled="true">
+            <boolProp name="createNewConnection">false</boolProp>
+            <boolProp name="binaryPayload">false</boolProp>
+            <stringProp name="requestData">{
+  "type": "speech.config",
+  "session_id": null,
+  "payload": {
+    "language": "${__P(language,en)}",
+    "sample_rate": ${__P(sample_rate,16000)},
+    "encoding": "${__P(encoding,pcm_s16le)}",
+    "window_duration_ms": ${__P(window_duration_ms,20000)},
+    "overlap_duration_ms": ${__P(overlap_duration_ms,2000)}
+  }
+}</stringProp>
+          </eu.luminis.jmeter.wssampler.SingleWriteWebSocketSampler>
+          <hashTree/>
+
+          <!-- ─── Step 3: Read speech.config.ack ─── -->
+          <eu.luminis.jmeter.wssampler.SingleReadWebSocketSampler guiclass="eu.luminis.jmeter.wssampler.SingleReadWebSocketSamplerGui" testclass="eu.luminis.jmeter.wssampler.SingleReadWebSocketSampler" testname="Read speech.config.ack" enabled="true">
+            <boolProp name="createNewConnection">false</boolProp>
+            <stringProp name="readTimeout">10000</stringProp>
+            <boolProp name="optional">false</boolProp>
+          </eu.luminis.jmeter.wssampler.SingleReadWebSocketSampler>
+          <hashTree>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Assert config.ack" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="1001">speech.config.ack</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+              <intProp name="Assertion.test_type">2</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+            <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="Extract session_id" enabled="true">
+              <stringProp name="JSONPostProcessor.referenceNames">session_id</stringProp>
+              <stringProp name="JSONPostProcessor.jsonPathExprs">$.session_id</stringProp>
+              <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
+              <stringProp name="JSONPostProcessor.defaultValues">NO_SESSION</stringProp>
+            </JSONPostProcessor>
+            <hashTree/>
+          </hashTree>
+
+          <!-- ─── Step 4: Load and send audio chunks ─── -->
+          <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="Load Audio File" enabled="true">
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="script">
+import java.nio.file.Files
+import java.nio.file.Paths
+
+def audioFilePath = props.get("audio.file") ?: "data/audio/sample-short-5s.raw"
+def chunkSize = (props.get("audio.chunk_size_bytes") ?: "6400") as int
+
+def audioBytes = Files.readAllBytes(Paths.get(audioFilePath))
+vars.putObject("audioBytes", audioBytes)
+vars.put("chunkSize", chunkSize.toString())
+
+def numChunks = (int) Math.ceil(audioBytes.length / (double) chunkSize)
+vars.put("numChunks", numChunks.toString())
+
+log.info("Audio loaded: ${audioBytes.length} bytes, ${numChunks} chunks of ${chunkSize} bytes")
+SampleResult.setResponseData("Loaded ${audioBytes.length} bytes, ${numChunks} chunks", "UTF-8")
+SampleResult.setSuccessful(true)
+            </stringProp>
+          </JSR223Sampler>
+          <hashTree/>
+
+          <!-- Audio chunk send loop -->
+          <LoopController guiclass="LoopControlPanel" testclass="LoopController" testname="Audio Chunk Loop" enabled="true">
+            <stringProp name="LoopController.loops">${numChunks}</stringProp>
+            <boolProp name="LoopController.continue_forever">false</boolProp>
+          </LoopController>
+          <hashTree>
+            <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="Send Audio Chunk (binary)" enabled="true">
+              <stringProp name="scriptLanguage">groovy</stringProp>
+              <stringProp name="script">
+import eu.luminis.jmeter.wssampler.WebsocketSampler
+
+def audioBytes = vars.getObject("audioBytes") as byte[]
+def chunkSize = vars.get("chunkSize") as int
+def loopIdx = vars.get("__jm__Audio Chunk Loop__idx") as int
+
+def offset = loopIdx * chunkSize
+def remaining = Math.min(chunkSize, audioBytes.length - offset)
+
+if (remaining &lt;= 0) {
+    SampleResult.setSuccessful(true)
+    SampleResult.setResponseData("No more audio data", "UTF-8")
+    return
+}
+
+def chunk = new byte[remaining]
+System.arraycopy(audioBytes, offset, chunk, 0, remaining)
+
+// Access the plugin's cached WebSocket connection for this thread
+def field = WebsocketSampler.getDeclaredField("threadLocalCachedConnection")
+field.setAccessible(true)
+def threadLocal = field.get(null) as ThreadLocal
+def wsClient = threadLocal.get()
+
+if (wsClient != null &amp;&amp; wsClient.isConnected()) {
+    wsClient.sendBinaryFrame(chunk)
+    SampleResult.setSuccessful(true)
+    SampleResult.setResponseData("Sent chunk ${loopIdx}: ${remaining} bytes at offset ${offset}", "UTF-8")
+    SampleResult.setBytes((long) remaining)
+    SampleResult.setSentBytes((long) remaining)
+} else {
+    SampleResult.setSuccessful(false)
+    SampleResult.setResponseData("WebSocket not connected", "UTF-8")
+}
+              </stringProp>
+            </JSR223Sampler>
+            <hashTree/>
+
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="Real-time Pacing" enabled="true">
+              <stringProp name="ConstantTimer.delay">${__P(audio.chunk_interval_ms,200)}</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+          </hashTree>
+
+          <!-- ─── Step 5: Send speech.end ─── -->
+          <eu.luminis.jmeter.wssampler.SingleWriteWebSocketSampler guiclass="eu.luminis.jmeter.wssampler.SingleWriteWebSocketSamplerGui" testclass="eu.luminis.jmeter.wssampler.SingleWriteWebSocketSampler" testname="Send speech.end" enabled="true">
+            <boolProp name="createNewConnection">false</boolProp>
+            <boolProp name="binaryPayload">false</boolProp>
+            <stringProp name="requestData">{
+  "type": "speech.end",
+  "session_id": "${session_id}",
+  "payload": {}
+}</stringProp>
+          </eu.luminis.jmeter.wssampler.SingleWriteWebSocketSampler>
+          <hashTree/>
+
+          <!-- ─── Step 6: Read responses (phrase/hypothesis/checkpoint) ─── -->
+          <!-- The server may send multiple messages: speech.hypothesis (partial), speech.phrase (final), speech.checkpoint -->
+          <!-- We read in a loop until we get speech.phrase with EndOfStream or timeout -->
+          <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="Read transcription results" enabled="true">
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="script">
+import eu.luminis.jmeter.wssampler.WebsocketSampler
+import groovy.json.JsonSlurper
+
+def field = WebsocketSampler.getDeclaredField("threadLocalCachedConnection")
+field.setAccessible(true)
+def threadLocal = field.get(null) as ThreadLocal
+def wsClient = threadLocal.get()
+
+def hypothesisCount = 0
+def phraseCount = 0
+def checkpointCount = 0
+def finalText = ""
+def allMessages = []
+
+if (wsClient == null || !wsClient.isConnected()) {
+    SampleResult.setSuccessful(false)
+    SampleResult.setResponseData("WebSocket not connected", "UTF-8")
+    return
+}
+
+// Read messages for up to 30 seconds
+def deadline = System.currentTimeMillis() + 30000
+def done = false
+
+while (!done &amp;&amp; System.currentTimeMillis() &lt; deadline) {
+    try {
+        def frame = wsClient.receiveText(5000)
+        if (frame == null) break
+
+        def text = frame.getText()
+        def json = new JsonSlurper().parseText(text)
+        allMessages.add(json.type)
+
+        switch (json.type) {
+            case "speech.hypothesis":
+                hypothesisCount++
+                log.info("Hypothesis: ${json.payload?.text?.take(100)}")
+                break
+            case "speech.phrase":
+                phraseCount++
+                finalText = json.payload?.text ?: ""
+                if (json.payload?.status == "EndOfStream") {
+                    done = true
+                }
+                log.info("Phrase (${json.payload?.status}): ${finalText.take(200)}")
+                break
+            case "speech.checkpoint":
+                checkpointCount++
+                log.info("Checkpoint: last_audio_ms=${json.payload?.last_audio_ms}")
+                done = true  // checkpoint comes last
+                break
+            case "speech.backpressure":
+                log.warn("Backpressure: ${json.payload?.action}")
+                break
+            case "speech.error":
+                log.error("Error: ${json.payload?.code} - ${json.payload?.message}")
+                SampleResult.setSuccessful(false)
+                SampleResult.setResponseData("Server error: ${json.payload?.code} - ${json.payload?.message}", "UTF-8")
+                return
+            default:
+                log.info("Unknown message: ${json.type}")
+        }
+    } catch (eu.luminis.websocket.UnexpectedFrameException e) {
+        log.info("Non-text frame received, continuing...")
+    } catch (java.net.SocketTimeoutException e) {
+        log.info("Read timeout, finishing receive loop")
+        break
+    }
+}
+
+def summary = """Transcription Results:
+  Messages received: ${allMessages.join(', ')}
+  Hypotheses: ${hypothesisCount}
+  Phrases: ${phraseCount}
+  Checkpoints: ${checkpointCount}
+  Final text: ${finalText.take(300)}"""
+
+log.info(summary)
+SampleResult.setResponseData(summary, "UTF-8")
+SampleResult.setSuccessful(phraseCount > 0)
+
+// Store for downstream assertions
+vars.put("hypothesis_count", hypothesisCount.toString())
+vars.put("phrase_count", phraseCount.toString())
+vars.put("checkpoint_count", checkpointCount.toString())
+vars.put("final_transcript", finalText)
+            </stringProp>
+          </JSR223Sampler>
+          <hashTree/>
+
+          <!-- ─── Step 7: Close WebSocket ─── -->
+          <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="WS Close" enabled="true">
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="script">
+import eu.luminis.jmeter.wssampler.WebsocketSampler
+
+def field = WebsocketSampler.getDeclaredField("threadLocalCachedConnection")
+field.setAccessible(true)
+def threadLocal = field.get(null) as ThreadLocal
+def wsClient = threadLocal.get()
+
+if (wsClient != null &amp;&amp; wsClient.isConnected()) {
+    try {
+        wsClient.sendClose(1000, "test complete")
+        SampleResult.setSuccessful(true)
+        SampleResult.setResponseData("WebSocket closed (1000)", "UTF-8")
+    } catch (Exception e) {
+        // Connection may already be closing
+        SampleResult.setSuccessful(true)
+        SampleResult.setResponseData("Close sent (${e.message})", "UTF-8")
+    }
+} else {
+    SampleResult.setSuccessful(true)
+    SampleResult.setResponseData("Already disconnected", "UTF-8")
+}
+            </stringProp>
+          </JSR223Sampler>
+          <hashTree/>
+
+        </hashTree>
+      </hashTree>
+
+      <!-- ═══ Thread Group: HTTP Health Check (parallel) ═══ -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Smoke - Health Check" enabled="true">
+        <stringProp name="ThreadGroup.num_threads">1</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">0</stringProp>
+        <boolProp name="ThreadGroup.scheduler">true</boolProp>
+        <stringProp name="ThreadGroup.duration">${__P(test.duration.seconds,60)}</stringProp>
+        <stringProp name="ThreadGroup.delay">0</stringProp>
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <intProp name="LoopController.loops">-1</intProp>
+        </elementProp>
+      </ThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="GET /health" enabled="true">
+          <stringProp name="HTTPSampler.domain">${__P(target.host,localhost)}</stringProp>
+          <stringProp name="HTTPSampler.port">${__P(target.port,30090)}</stringProp>
+          <stringProp name="HTTPSampler.path">/health</stringProp>
+          <stringProp name="HTTPSampler.method">GET</stringProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Assert 200" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="49586">200</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <intProp name="Assertion.test_type">8</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+        <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="Poll Interval" enabled="true">
+          <stringProp name="ConstantTimer.delay">5000</stringProp>
+        </ConstantTimer>
+        <hashTree/>
+      </hashTree>
+
+      <!-- Summary Report -->
+      <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="Summary Report" enabled="true">
+        <boolProp name="ResultCollector.error_logging">false</boolProp>
+        <objProp>
+          <name>saveConfig</name>
+          <value class="SampleSaveConfiguration">
+            <time>true</time>
+            <latency>true</latency>
+            <timestamp>true</timestamp>
+            <success>true</success>
+            <label>true</label>
+            <code>true</code>
+            <message>true</message>
+            <threadName>true</threadName>
+            <assertions>true</assertions>
+            <bytes>true</bytes>
+            <sentBytes>true</sentBytes>
+            <url>true</url>
+            <threadCounts>true</threadCounts>
+            <connectTime>true</connectTime>
+          </value>
+        </objProp>
+        <stringProp name="filename"></stringProp>
+      </ResultCollector>
+      <hashTree/>
+
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>

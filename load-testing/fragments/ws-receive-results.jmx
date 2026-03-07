@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestFragment guiclass="TestFragmentControllerGui" testclass="TestFragmentController" testname="WS Receive Results" enabled="false">
+      <stringProp name="TestFragment.comments">Listens for speech.hypothesis, speech.phrase, speech.checkpoint, and speech.backpressure messages</stringProp>
+    </TestFragment>
+    <hashTree>
+
+      <!-- Initialize counters -->
+      <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="Init Result Counters" enabled="true">
+        <stringProp name="scriptLanguage">groovy</stringProp>
+        <stringProp name="script">
+vars.put("hypothesis_count", "0")
+vars.put("phrase_count", "0")
+vars.put("checkpoint_count", "0")
+vars.put("error_count", "0")
+vars.put("last_transcript", "")
+SampleResult.setSuccessful(true)
+SampleResult.setResponseData("Result counters initialized", "UTF-8")
+        </stringProp>
+      </JSR223Sampler>
+      <hashTree/>
+
+      <!-- Read loop: keep reading until we get a timeout or speech.end acknowledgement -->
+      <WhileController guiclass="WhileControllerGui" testclass="WhileController" testname="Receive Loop" enabled="true">
+        <stringProp name="WhileController.condition">${__groovy(vars.get("receive_done") != "true")}</stringProp>
+      </WhileController>
+      <hashTree>
+
+        <eu.luminis.jmeter.wssampler.SingleReadWebSocketSampler guiclass="eu.luminis.jmeter.wssampler.SingleReadWebSocketSamplerGui" testclass="eu.luminis.jmeter.wssampler.SingleReadWebSocketSampler" testname="Read Server Message" enabled="true">
+          <boolProp name="createNewConnection">false</boolProp>
+          <stringProp name="readTimeout">5000</stringProp>
+          <boolProp name="optional">true</boolProp>
+        </eu.luminis.jmeter.wssampler.SingleReadWebSocketSampler>
+        <hashTree>
+          <!-- Process the received message -->
+          <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="Process Message" enabled="true">
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="script">
+import groovy.json.JsonSlurper
+
+def response = prev.getResponseDataAsString()
+if (response == null || response.isEmpty()) {
+    // Timeout — no message received, exit loop
+    vars.put("receive_done", "true")
+    return
+}
+
+try {
+    def json = new JsonSlurper().parseText(response)
+    def msgType = json.type ?: ""
+
+    switch (msgType) {
+        case "speech.hypothesis":
+            def count = (vars.get("hypothesis_count") as int) + 1
+            vars.put("hypothesis_count", count.toString())
+            break
+        case "speech.phrase":
+            def count = (vars.get("phrase_count") as int) + 1
+            vars.put("phrase_count", count.toString())
+            if (json.payload?.segments) {
+                def text = json.payload.segments.collect { it.text }.join(" ")
+                vars.put("last_transcript", text)
+            }
+            break
+        case "speech.checkpoint":
+            def count = (vars.get("checkpoint_count") as int) + 1
+            vars.put("checkpoint_count", count.toString())
+            break
+        case "speech.backpressure":
+            // Handle flow control
+            if (json.payload?.action == "slow_down") {
+                log.warn("Backpressure: server requested slow_down for session ${json.session_id}")
+            }
+            break
+        case "speech.error":
+            def count = (vars.get("error_count") as int) + 1
+            vars.put("error_count", count.toString())
+            log.error("Server error: ${json.payload?.code} - ${json.payload?.message}")
+            vars.put("receive_done", "true")
+            break
+        default:
+            log.warn("Unknown message type: ${msgType}")
+    }
+} catch (Exception e) {
+    log.warn("Failed to parse server message: ${e.message}")
+}
+            </stringProp>
+          </JSR223PostProcessor>
+          <hashTree/>
+        </hashTree>
+
+      </hashTree>
+
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>

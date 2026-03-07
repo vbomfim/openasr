@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestFragment guiclass="TestFragmentControllerGui" testclass="TestFragmentController" testname="WS Teardown" enabled="false">
+      <stringProp name="TestFragment.comments">Sends speech.end, waits for final results, and closes WebSocket</stringProp>
+    </TestFragment>
+    <hashTree>
+
+      <!-- Send speech.end -->
+      <eu.luminis.jmeter.wssampler.SingleWriteWebSocketSampler guiclass="eu.luminis.jmeter.wssampler.SingleWriteWebSocketSamplerGui" testclass="eu.luminis.jmeter.wssampler.SingleWriteWebSocketSampler" testname="Send speech.end" enabled="true">
+        <boolProp name="createNewConnection">false</boolProp>
+        <boolProp name="binaryPayload">false</boolProp>
+        <stringProp name="requestData">{
+  "type": "speech.end",
+  "session_id": "${session_id}",
+  "payload": {}
+}</stringProp>
+      </eu.luminis.jmeter.wssampler.SingleWriteWebSocketSampler>
+      <hashTree/>
+
+      <!-- Wait for final speech.phrase (server drains buffered windows) -->
+      <eu.luminis.jmeter.wssampler.SingleReadWebSocketSampler guiclass="eu.luminis.jmeter.wssampler.SingleReadWebSocketSamplerGui" testclass="eu.luminis.jmeter.wssampler.SingleReadWebSocketSampler" testname="Read Final Results" enabled="true">
+        <boolProp name="createNewConnection">false</boolProp>
+        <stringProp name="readTimeout">30000</stringProp>
+        <boolProp name="optional">true</boolProp>
+      </eu.luminis.jmeter.wssampler.SingleReadWebSocketSampler>
+      <hashTree>
+        <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="Process Final Result" enabled="true">
+          <stringProp name="scriptLanguage">groovy</stringProp>
+          <stringProp name="script">
+import groovy.json.JsonSlurper
+
+def response = prev.getResponseDataAsString()
+if (response != null &amp;&amp; !response.isEmpty()) {
+    try {
+        def json = new JsonSlurper().parseText(response)
+        if (json.type == "speech.phrase" &amp;&amp; json.payload?.segments) {
+            def count = (vars.get("phrase_count") as int) + 1
+            vars.put("phrase_count", count.toString())
+            def text = json.payload.segments.collect { it.text }.join(" ")
+            vars.put("last_transcript", text)
+            log.info("Final transcript received for session ${json.session_id}")
+        }
+    } catch (Exception e) {
+        log.warn("Failed to parse final result: ${e.message}")
+    }
+}
+          </stringProp>
+        </JSR223PostProcessor>
+        <hashTree/>
+      </hashTree>
+
+      <!-- Log session summary -->
+      <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="Session Summary" enabled="true">
+        <stringProp name="scriptLanguage">groovy</stringProp>
+        <stringProp name="script">
+def hypotheses = vars.get("hypothesis_count") ?: "0"
+def phrases = vars.get("phrase_count") ?: "0"
+def checkpoints = vars.get("checkpoint_count") ?: "0"
+def errors = vars.get("error_count") ?: "0"
+def sessionId = vars.get("session_id") ?: "unknown"
+def transcript = vars.get("last_transcript") ?: "(none)"
+
+def summary = """Session Summary:
+  session_id: ${sessionId}
+  hypotheses: ${hypotheses}
+  phrases: ${phrases}
+  checkpoints: ${checkpoints}
+  errors: ${errors}
+  last_transcript: ${transcript.take(200)}"""
+
+log.info(summary)
+SampleResult.setResponseData(summary, "UTF-8")
+SampleResult.setSuccessful(errors == "0" &amp;&amp; phrases.toInteger() > 0)
+        </stringProp>
+      </JSR223Sampler>
+      <hashTree>
+        <!-- Assert we got at least one phrase -->
+        <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Assert Phrases Received" enabled="true">
+          <collectionProp name="Asserion.test_strings">
+            <stringProp name="1001">phrases: 0</stringProp>
+          </collectionProp>
+          <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+          <intProp name="Assertion.test_type">6</intProp>
+          <stringProp name="Assertion.custom_message">No speech.phrase received — transcription may have failed</stringProp>
+        </ResponseAssertion>
+        <hashTree/>
+      </hashTree>
+
+      <!-- Close WebSocket -->
+      <eu.luminis.jmeter.wssampler.CloseWebSocketSampler guiclass="eu.luminis.jmeter.wssampler.CloseWebSocketSamplerGui" testclass="eu.luminis.jmeter.wssampler.CloseWebSocketSampler" testname="WS Close" enabled="true">
+        <stringProp name="statusCode">1000</stringProp>
+        <stringProp name="readTimeout">5000</stringProp>
+      </eu.luminis.jmeter.wssampler.CloseWebSocketSampler>
+      <hashTree/>
+
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>

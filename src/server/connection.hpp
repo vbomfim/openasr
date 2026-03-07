@@ -2,7 +2,9 @@
 
 #include <string>
 #include <string_view>
+#include <chrono>
 #include <cstdint>
+#include <cstddef>
 
 namespace wss::server {
 
@@ -32,6 +34,13 @@ struct ConnectionData {
     std::string session_id;
     std::string encoding = "pcm_s16le"; // from speech.config
     bool backpressure_sent = false;
+
+    // Per-session message rate limiting (#21)
+    size_t messages_this_window = 0;
+    size_t bytes_this_window = 0;
+    std::chrono::steady_clock::time_point rate_window_start =
+        std::chrono::steady_clock::now();
+    bool rate_limited = false;
 };
 
 } // namespace wss::server

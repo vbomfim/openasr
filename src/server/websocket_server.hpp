@@ -1,6 +1,7 @@
 #pragma once
 
 #include "server/connection.hpp"
+#include "server/auth_rate_limiter.hpp"
 #include "session/session_manager.hpp"
 #include "transcription/inference_pool.hpp"
 #include "aggregation/result_aggregator.hpp"
@@ -17,6 +18,9 @@
 #include <atomic>
 #include <array>
 #include <cstring>
+#include <chrono>
+#include <mutex>
+#include <unordered_map>
 
 // Forward declaration — main.cpp should define a non-static g_running
 // and remove the static qualifier so this extern resolves at link time.
@@ -62,13 +66,21 @@ public:
                              transcription::InferencePool& inference_pool,
                              const std::string& api_key = "",
                              int io_threads = 1,
-                             TlsConfig tls = TlsConfig())
+                             TlsConfig tls = TlsConfig(),
+                             int auth_rate_max = 10,
+                             int auth_rate_window = 60,
+                             int msg_rate_max = 100,
+                             int msg_rate_bytes_max = 640000)
         : port_(port)
         , io_thread_count_(std::max(1, io_threads))
         , session_mgr_(session_mgr)
         , inference_pool_(inference_pool)
         , api_key_(api_key)
-        , tls_config_(std::move(tls)) {
+        , tls_config_(std::move(tls))
+        , msg_rate_limit_max_per_sec_(msg_rate_max)
+        , msg_rate_limit_max_bytes_per_sec_(msg_rate_bytes_max) {
+        auth_limiter_.max_failures = static_cast<size_t>(auth_rate_max);
+        auth_limiter_.window_secs = std::chrono::seconds(auth_rate_window);
         if (tls_config_.enabled) {
             spdlog::warn("TLS enabled in config but native TLS requires uWS::SSLApp. "
                          "Use a reverse proxy (K8s ingress, envoy) for TLS termination.");
@@ -175,6 +187,21 @@ private:
             .maxBackpressure = 1 * 1024 * 1024,
 
             .upgrade = [this](auto* res, auto* req, auto* context) {
+                // Extract client IP for rate limiting
+                std::string client_ip(req->getHeader("x-forwarded-for"));
+                if (client_ip.empty()) {
+                    client_ip = std::string(res->getRemoteAddressAsText());
+                }
+
+                // Check if IP is already rate-limited (#20)
+                if (!api_key_.empty() && auth_limiter_.is_blocked(client_ip)) {
+                    metrics::Metrics::instance().connections_rejected_auth.Increment();
+                    spdlog::warn("Auth rate limited: ip={} (too many failures)", client_ip);
+                    res->writeStatus("429 Too Many Requests");
+                    res->end("Too many authentication failures. Try again later.");
+                    return;
+                }
+
                 bool authenticated = api_key_.empty(); // dev mode if no key configured
 
                 if (!authenticated) {
@@ -185,7 +212,10 @@ private:
                 }
 
                 if (!authenticated) {
+                    bool now_blocked = auth_limiter_.check_and_record_failure(client_ip);
                     metrics::Metrics::instance().connections_rejected_auth.Increment();
+                    spdlog::warn("Auth failed: ip={}{}", client_ip,
+                        now_blocked ? " (now rate-limited)" : "");
                     res->writeStatus("401 Unauthorized");
                     res->end("Invalid or missing API key. Use Authorization: Bearer <key> header.");
                     return;
@@ -544,6 +574,37 @@ private:
             return;
         }
 
+        // Per-session message rate limiting (#21)
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+            now - conn->rate_window_start);
+        if (elapsed >= std::chrono::seconds(1)) {
+            // Reset window
+            conn->messages_this_window = 0;
+            conn->bytes_this_window = 0;
+            conn->rate_window_start = now;
+            if (conn->rate_limited) {
+                conn->rate_limited = false;
+                spdlog::info("Rate limit lifted: session={}", conn->session_id);
+            }
+        }
+
+        conn->messages_this_window++;
+        conn->bytes_this_window += data.size();
+
+        if (static_cast<int>(conn->messages_this_window) > msg_rate_limit_max_per_sec_ ||
+            static_cast<int>(conn->bytes_this_window) > msg_rate_limit_max_bytes_per_sec_) {
+            if (!conn->rate_limited) {
+                conn->rate_limited = true;
+                metrics::Metrics::instance().backpressure_events_total.Increment();
+                spdlog::warn("Rate limited: session={} msgs={}/s bytes={}/s",
+                    conn->session_id, conn->messages_this_window, conn->bytes_this_window);
+                send_to_session(conn->session_id,
+                    protocol::make_speech_backpressure(conn->session_id, "slow_down"));
+            }
+            return; // drop the frame
+        }
+
         auto* session = session_mgr_.get_session(conn->session_id);
         if (!session) {
             send_error(ws, conn->session_id, "SESSION_NOT_FOUND",
@@ -739,6 +800,9 @@ private:
     TlsConfig tls_config_;
     std::atomic<size_t> active_connections_{0};
     static constexpr size_t kMaxConnections = 100;
+    AuthRateLimiter auth_limiter_;
+    int msg_rate_limit_max_per_sec_ = 100;
+    int msg_rate_limit_max_bytes_per_sec_ = 640000;
 };
 
 } // namespace wss::server

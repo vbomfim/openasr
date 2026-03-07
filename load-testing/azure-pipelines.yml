@@ -1,0 +1,132 @@
+trigger:
+  branches:
+    include:
+      - main
+      - release/*
+  paths:
+    include:
+      - load-testing/**
+
+variables:
+  - group: openasr-load-test-vars  # Contains AUTH_TOKEN, TARGET_HOST, ALT resource info
+
+stages:
+
+  # ── Stage 1: Smoke Test ─────────────────────────────────────────
+  # Quick sanity check — 3 sessions, 1 minute.
+  # Runs on every push. Gates all subsequent stages.
+  - stage: SmokeTest
+    displayName: 'Smoke Test (3 sessions, 1 min)'
+    jobs:
+      - job: RunSmoke
+        displayName: 'Run Smoke Test via Azure Load Testing'
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: AzureLoadTest@1
+            displayName: 'Execute Smoke Test'
+            inputs:
+              azureSubscription: '$(AZURE_SUBSCRIPTION)'
+              loadTestConfigFile: 'load-testing/config/smoke-test.yaml'
+              loadTestResource: '$(ALT_RESOURCE_NAME)'
+              resourceGroup: '$(ALT_RESOURCE_GROUP)'
+              env: |
+                [
+                  { "name": "target.host", "value": "$(TARGET_HOST)" },
+                  { "name": "target.port", "value": "$(TARGET_PORT)" },
+                  { "name": "AUTH_TOKEN", "value": "$(AUTH_TOKEN)" },
+                  { "name": "concurrent.sessions", "value": "3" },
+                  { "name": "ramp.up.seconds", "value": "10" },
+                  { "name": "test.duration.seconds", "value": "60" }
+                ]
+
+  # ── Stage 2: Load Test ──────────────────────────────────────────
+  # Steady-state at designed capacity — 20 sessions, 15 minutes.
+  # Runs automatically if smoke passes.
+  - stage: LoadTest
+    displayName: 'Load Test (20 sessions, 15 min)'
+    dependsOn: SmokeTest
+    condition: succeeded()
+    jobs:
+      - job: RunLoad
+        displayName: 'Run Load Test via Azure Load Testing'
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: AzureLoadTest@1
+            displayName: 'Execute Load Test'
+            inputs:
+              azureSubscription: '$(AZURE_SUBSCRIPTION)'
+              loadTestConfigFile: 'load-testing/config/load-test.yaml'
+              loadTestResource: '$(ALT_RESOURCE_NAME)'
+              resourceGroup: '$(ALT_RESOURCE_GROUP)'
+              env: |
+                [
+                  { "name": "target.host", "value": "$(TARGET_HOST)" },
+                  { "name": "target.port", "value": "$(TARGET_PORT)" },
+                  { "name": "AUTH_TOKEN", "value": "$(AUTH_TOKEN)" },
+                  { "name": "concurrent.sessions", "value": "20" },
+                  { "name": "ramp.up.seconds", "value": "180" },
+                  { "name": "test.duration.seconds", "value": "900" }
+                ]
+
+  # ── Stage 3: Stress Test ────────────────────────────────────────
+  # Beyond capacity — 50 sessions, 15 minutes.
+  # Manual gate: only runs when RUN_STRESS variable is 'true'.
+  - stage: StressTest
+    displayName: 'Stress Test (50 sessions, 15 min)'
+    dependsOn: LoadTest
+    condition: and(succeeded(), eq(variables['RUN_STRESS'], 'true'))
+    jobs:
+      - job: RunStress
+        displayName: 'Run Stress Test via Azure Load Testing'
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: AzureLoadTest@1
+            displayName: 'Execute Stress Test'
+            inputs:
+              azureSubscription: '$(AZURE_SUBSCRIPTION)'
+              loadTestConfigFile: 'load-testing/config/stress-test.yaml'
+              loadTestResource: '$(ALT_RESOURCE_NAME)'
+              resourceGroup: '$(ALT_RESOURCE_GROUP)'
+              env: |
+                [
+                  { "name": "target.host", "value": "$(TARGET_HOST)" },
+                  { "name": "target.port", "value": "$(TARGET_PORT)" },
+                  { "name": "AUTH_TOKEN", "value": "$(AUTH_TOKEN)" },
+                  { "name": "concurrent.sessions", "value": "50" },
+                  { "name": "ramp.up.seconds", "value": "300" },
+                  { "name": "test.duration.seconds", "value": "900" }
+                ]
+
+  # ── Stage 4: Endurance Test ─────────────────────────────────────
+  # Long-running soak test — 15 sessions, 2 hours.
+  # Manual gate: only runs when RUN_ENDURANCE variable is 'true'.
+  - stage: EnduranceTest
+    displayName: 'Endurance Test (15 sessions, 2 hrs)'
+    dependsOn: LoadTest
+    condition: and(succeeded(), eq(variables['RUN_ENDURANCE'], 'true'))
+    jobs:
+      - job: RunEndurance
+        displayName: 'Run Endurance Test via Azure Load Testing'
+        pool:
+          vmImage: ubuntu-latest
+        timeoutInMinutes: 180
+        steps:
+          - task: AzureLoadTest@1
+            displayName: 'Execute Endurance Test'
+            inputs:
+              azureSubscription: '$(AZURE_SUBSCRIPTION)'
+              loadTestConfigFile: 'load-testing/config/endurance-test.yaml'
+              loadTestResource: '$(ALT_RESOURCE_NAME)'
+              resourceGroup: '$(ALT_RESOURCE_GROUP)'
+              env: |
+                [
+                  { "name": "target.host", "value": "$(TARGET_HOST)" },
+                  { "name": "target.port", "value": "$(TARGET_PORT)" },
+                  { "name": "AUTH_TOKEN", "value": "$(AUTH_TOKEN)" },
+                  { "name": "concurrent.sessions", "value": "15" },
+                  { "name": "ramp.up.seconds", "value": "180" },
+                  { "name": "test.duration.seconds", "value": "7200" }
+                ]
