@@ -43,11 +43,14 @@ spec:
             - -c
             - |
               MODEL=/models/ggml-small.en.bin
+              CHECKSUM="5765be703c55280bdf7f9081469a504790544d4f820378c0750cc5c6d1e39e3e"
               if [ ! -f "$MODEL" ]; then
                 echo "Downloading whisper small.en model (~466MB)..."
                 curl -L --progress-bar -o "$MODEL" \
                   "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin"
-                echo "Download complete: $(ls -lh $MODEL)"
+                echo "Verifying SHA-256 checksum..."
+                echo "$CHECKSUM  $MODEL" | sha256sum -c - || { echo "CHECKSUM FAILED"; rm -f "$MODEL"; exit 1; }
+                echo "Download verified: $(ls -lh $MODEL)"
               else
                 echo "Model already exists: $(ls -lh $MODEL)"
               fi
