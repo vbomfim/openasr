@@ -8,7 +8,8 @@
 //   - test_constant_time.cpp
 //   - test_auth_rate_limiter.cpp
 
-TEST(WebSocketServerIntegration, PlaceholderForFutureTests) {
+TEST(WebSocketServerIntegration, DISABLED_PlaceholderForFutureTests) {
     // TODO: Add in-process integration tests using a mock transport
-    GTEST_SKIP("In-process WebSocketServer integration tests not yet implemented");
+    SUCCEED();
 }
+
