@@ -116,13 +116,13 @@ public:
 
     /// Add transcription segments via the ResultAggregator (handles overlap dedup).
     void add_transcription_result(const std::vector<transcription::Segment>& segments,
-                                  int64_t window_start_ms, int64_t window_end_ms) {
+                                  int64_t window_end_ms) {
         std::lock_guard lock(mutex_);
         if (transcript_.size() > kMaxTranscriptLength) {
             spdlog::warn("Transcript limit reached for session {}", config_.session_id);
             return;
         }
-        aggregator_.add_window(segments, window_start_ms, window_end_ms);
+        aggregator_.add_window(segments, window_end_ms);
         transcript_ = aggregator_.full_transcript();
         last_text_offset_ = static_cast<int64_t>(transcript_.size());
     }
