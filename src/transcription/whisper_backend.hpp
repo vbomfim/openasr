@@ -4,7 +4,6 @@
 #include "object_pool.hpp"
 #include <whisper.h>
 #include <spdlog/spdlog.h>
-#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <atomic>
@@ -79,9 +78,10 @@ public:
         auto* state = *state_opt;
         // RAII guard to return state to pool on any exit path
         struct StateGuard {
-            std::function<void()> cleanup;
-            ~StateGuard() { if (cleanup) cleanup(); }
-        } guard{[this, state]() { state_pool_->checkin(state); }};
+            ObjectPool<whisper_state*>* pool;
+            whisper_state* state;
+            ~StateGuard() { pool->checkin(state); }
+        } guard{state_pool_.get(), state};
 
         spdlog::info("Whisper state checked out, configuring params...");
 
@@ -91,7 +91,7 @@ public:
         params.n_threads = 1; // use 1 thread per inference call for safety
         params.beam_search.beam_size = config_.beam_size;
         params.no_timestamps = false;
-        params.print_progress = true;
+        params.print_progress = false;
         params.print_special = false;
         params.print_realtime = false;
         params.print_timestamps = false;

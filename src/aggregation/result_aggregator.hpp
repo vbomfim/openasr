@@ -31,6 +31,7 @@ public:
         // Track the non-overlap boundary for next window
         // If overlap exists, the stable boundary is window_end minus any overlap
         last_non_overlap_end_ms_ = window_end_ms;
+        transcript_dirty_ = true;
         (void)window_start_ms;
     }
 
@@ -39,16 +40,20 @@ public:
         return all_segments_;
     }
 
-    /// Build the full transcript string from accumulated segments.
-    [[nodiscard]] std::string full_transcript() const {
-        std::string result;
-        for (const auto& seg : all_segments_) {
-            if (!result.empty() && !seg.text.empty()) {
-                result += ' ';
+    /// Build the full transcript string from accumulated segments (cached).
+    /// Incrementally appends only new segments since the last call.
+    [[nodiscard]] const std::string& full_transcript() const {
+        if (transcript_dirty_) {
+            for (size_t i = cached_segment_count_; i < all_segments_.size(); ++i) {
+                if (!cached_transcript_.empty() && !all_segments_[i].text.empty()) {
+                    cached_transcript_ += ' ';
+                }
+                cached_transcript_ += all_segments_[i].text;
             }
-            result += seg.text;
+            cached_segment_count_ = all_segments_.size();
+            transcript_dirty_ = false;
         }
-        return result;
+        return cached_transcript_;
     }
 
     /// Get segments from the latest window only (for PARTIAL_TRANSCRIPT).
@@ -66,11 +71,17 @@ public:
     void reset() {
         all_segments_.clear();
         last_non_overlap_end_ms_ = 0;
+        cached_transcript_.clear();
+        cached_segment_count_ = 0;
+        transcript_dirty_ = false;
     }
 
 private:
     std::vector<transcription::Segment> all_segments_;
     int64_t last_non_overlap_end_ms_ = 0;
+    mutable std::string cached_transcript_;
+    mutable size_t cached_segment_count_ = 0;
+    mutable bool transcript_dirty_ = true;
 };
 
 } // namespace wss::aggregation
