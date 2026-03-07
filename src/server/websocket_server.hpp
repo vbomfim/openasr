@@ -173,7 +173,7 @@ private:
 
         app.ws<ConnectionData>("/transcribe", {
             .compression = uWS::DISABLED,
-            .maxPayloadLength = 16 * 1024 * 1024,
+            .maxPayloadLength = 256 * 1024,
             .idleTimeout = 120,
             .maxBackpressure = 1 * 1024 * 1024,
 
