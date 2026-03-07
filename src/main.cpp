@@ -8,12 +8,18 @@
 #include <csignal>
 #include <atomic>
 #include <memory>
+#include <unistd.h>
 
 static std::atomic<bool> g_running{true};
 
 static void signal_handler(int signum) {
-    spdlog::info("Received signal {}, initiating graceful shutdown...", signum);
+    const char msg[] = "Shutdown signal received\n";
+    (void)write(STDERR_FILENO, msg, sizeof(msg) - 1);
     g_running.store(false, std::memory_order_release);
+    // Restore default handler and re-raise so the process terminates
+    // even if no event loop checks g_running.
+    signal(signum, SIG_DFL);
+    raise(signum);
 }
 
 static spdlog::level::level_enum parse_log_level(const std::string& level) {

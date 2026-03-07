@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <stdexcept>
+#include <atomic>
 #include <string>
 
 namespace wss::transcription {
@@ -56,7 +57,7 @@ public:
         );
 
         spdlog::info("Whisper state pool created: size={}", pool_size);
-        ready_ = true;
+        ready_.store(true, std::memory_order_release);
         return true;
     }
 
@@ -65,7 +66,7 @@ public:
         size_t sample_count,
         int64_t window_start_ms
     ) override {
-        if (!ready_ || !ctx_) {
+        if (!ready_.load(std::memory_order_acquire) || !ctx_) {
             return {};
         }
 
@@ -133,13 +134,13 @@ public:
         return result;
     }
 
-    [[nodiscard]] bool is_ready() const override { return ready_; }
+    [[nodiscard]] bool is_ready() const override { return ready_.load(std::memory_order_acquire); }
 
 private:
     BackendConfig config_;
     whisper_context* ctx_ = nullptr;
     std::unique_ptr<ObjectPool<whisper_state*>> state_pool_;
-    bool ready_ = false;
+    std::atomic<bool> ready_{false};
 };
 
 } // namespace wss::transcription

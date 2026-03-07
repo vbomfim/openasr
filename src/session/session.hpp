@@ -90,6 +90,7 @@ public:
 
     /// Check if a window is ready for transcription.
     [[nodiscard]] bool window_ready() const {
+        std::lock_guard lock(mutex_);
         return buffer_engine_.window_ready(pipeline_.ring_buffer());
     }
 
