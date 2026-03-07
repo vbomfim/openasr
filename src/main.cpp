@@ -8,17 +8,19 @@
 #include <csignal>
 #include <atomic>
 #include <memory>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 static std::atomic<bool> g_running{true};
 
 static void signal_handler(int signum) {
+#ifndef _WIN32
     const char msg[] = "Shutdown signal received\n";
     ssize_t ret = write(STDERR_FILENO, msg, sizeof(msg) - 1);
     (void)ret;
+#endif
     g_running.store(false, std::memory_order_release);
-    // Restore default handler and re-raise so the process terminates
-    // even if no event loop checks g_running.
     signal(signum, SIG_DFL);
     raise(signum);
 }
@@ -64,12 +66,17 @@ int main(int /*argc*/, char* /*argv*/[]) {
         cfg.overlap_duration_ms, cfg.inference_threads);
 
     // Install signal handlers
+#ifdef _WIN32
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+#else
     struct sigaction sa{};
     sa.sa_handler = signal_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
     sigaction(SIGTERM, &sa, nullptr);
     sigaction(SIGINT, &sa, nullptr);
+#endif
 
     // Initialize whisper.cpp backend (required)
     if (cfg.model_path.empty()) {
