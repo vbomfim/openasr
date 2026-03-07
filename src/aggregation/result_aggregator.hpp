@@ -77,6 +77,9 @@ private:
     std::vector<transcription::Segment> all_segments_;
     int64_t last_non_overlap_end_ms_ = 0;
     mutable std::string cached_transcript_;
+    mutable size_t cached_segment_count_ = 0;
+    mutable bool transcript_dirty_ = true;
+    mutable std::string cached_transcript_;
     mutable bool transcript_dirty_ = true;
 };
 

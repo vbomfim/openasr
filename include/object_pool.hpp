@@ -1,9 +1,11 @@
 #pragma once
 
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <vector>
+#include <optional>
 #include <stdexcept>
 
 namespace wss {
