@@ -8,11 +8,13 @@
 #include <csignal>
 #include <atomic>
 #include <memory>
+#include <unistd.h>
 
 static std::atomic<bool> g_running{true};
 
-static void signal_handler(int signum) {
-    spdlog::info("Received signal {}, initiating graceful shutdown...", signum);
+static void signal_handler(int /*signum*/) {
+    const char msg[] = "Shutdown signal received\n";
+    (void)write(STDERR_FILENO, msg, sizeof(msg) - 1);
     g_running.store(false, std::memory_order_release);
 }
 
