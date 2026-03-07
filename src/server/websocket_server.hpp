@@ -57,7 +57,8 @@ public:
                              int msg_rate_max = 100,
                              int msg_rate_bytes_max = 640000,
                              bool trust_proxy = false,
-                             size_t max_tracked_ips = 10000)
+                             size_t max_tracked_ips = 10000,
+                             int trusted_proxy_hops = 1)
         : port_(port)
         , io_thread_count_(std::max(1, io_threads))
         , session_mgr_(session_mgr)
@@ -65,6 +66,7 @@ public:
         , api_key_(api_key)
         , tls_config_(std::move(tls))
         , trust_proxy_(trust_proxy)
+        , trusted_proxy_hops_(trusted_proxy_hops)
         , msg_rate_limit_max_per_sec_(msg_rate_max)
         , msg_rate_limit_max_bytes_per_sec_(msg_rate_bytes_max) {
         auth_limiter_.max_failures = static_cast<size_t>(auth_rate_max);
@@ -180,7 +182,8 @@ private:
                 std::string client_ip = extract_client_ip(
                     req->getHeader("x-forwarded-for"),
                     res->getRemoteAddressAsText(),
-                    trust_proxy_);
+                    trust_proxy_,
+                    trusted_proxy_hops_);
 
                 // Check if IP is already rate-limited (#20)
                 if (!api_key_.empty() && auth_limiter_.is_blocked(client_ip)) {
@@ -501,16 +504,16 @@ private:
 
         // Assign or resume session
         if (config.resume_checkpoint) {
-            // Validate that the session exists before allowing resume (#38)
+            // Reject if session ID is already in use (prevents hijacking #38)
             auto* existing = session_mgr_.get_session(
                 config.resume_checkpoint->session_id);
-            if (!existing) {
-                send_error(ws, conn->session_id, "SESSION_NOT_FOUND",
-                    "Cannot resume: session does not exist");
+            if (existing) {
+                send_error(ws, conn->session_id, "SESSION_CONFLICT",
+                    "Cannot resume: session ID already in use");
                 return;
             }
             conn->session_id = config.resume_checkpoint->session_id;
-            spdlog::info("Resuming session: {}", conn->session_id);
+            spdlog::info("Resuming from checkpoint: {}", conn->session_id);
         } else {
             conn->session_id = generate_session_id();
             spdlog::info("New session: {}", conn->session_id);
@@ -797,6 +800,7 @@ private:
     std::string api_key_;
     TlsConfig tls_config_;
     bool trust_proxy_ = false;
+    int trusted_proxy_hops_ = 1;
     std::atomic<size_t> active_connections_{0};
     static constexpr size_t kMaxConnections = 100;
     AuthRateLimiter auth_limiter_;

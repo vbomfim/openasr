@@ -67,3 +67,30 @@ TEST(ExtractClientIpTest, SpoofingBlocked_WhenNoTrust) {
     EXPECT_EQ(extract_client_ip("evil-spoofed-ip", "real-socket-ip", false),
               "real-socket-ip");
 }
+
+// ---------------------------------------------------------------------------
+// 9. Multi-proxy: trusted_hops=2, skip 1 from right, take client IP.
+// ---------------------------------------------------------------------------
+TEST(ExtractClientIpTest, Trust_MultiProxy_2Hops) {
+    // client → Proxy1 → Proxy2 → server
+    // Proxy2 adds proxy1-internal, XFF = "client-ip, proxy1-internal"
+    EXPECT_EQ(extract_client_ip("client-ip, proxy1-internal",
+                                "socket-ip", true, 2),
+              "client-ip");
+}
+
+// ---------------------------------------------------------------------------
+// 10. trusted_hops=3 but only 1 entry falls back to remote address.
+// ---------------------------------------------------------------------------
+TEST(ExtractClientIpTest, Trust_TooFewEntries_FallsBack) {
+    EXPECT_EQ(extract_client_ip("only-one-ip", "socket-ip", true, 3),
+              "socket-ip");
+}
+
+// ---------------------------------------------------------------------------
+// 11. HTAB whitespace is trimmed per RFC 7239 OWS.
+// ---------------------------------------------------------------------------
+TEST(ExtractClientIpTest, Trust_TabWhitespaceHandling) {
+    EXPECT_EQ(extract_client_ip("10.0.0.1,\t10.0.0.77\t", "192.168.1.1", true),
+              "10.0.0.77");
+}

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "server/session_id.hpp"
 
+#include <cctype>
 #include <set>
 #include <thread>
 #include <vector>

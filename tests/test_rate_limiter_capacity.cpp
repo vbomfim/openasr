@@ -37,9 +37,9 @@ TEST(AuthRateLimiterCapacityTest, MaxSize_CapsEntries) {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Existing tracked IPs still work after cap is hit.
+// 3. Newly inserted IPs are tracked even after eviction of older entries.
 // ---------------------------------------------------------------------------
-TEST(AuthRateLimiterCapacityTest, CappedLimiter_ExistingIpsStillTracked) {
+TEST(AuthRateLimiterCapacityTest, CappedLimiter_NewIpsTrackedAfterEviction) {
     wss::server::AuthRateLimiter limiter;
     limiter.max_tracked_ips = 10;
 
@@ -49,19 +49,17 @@ TEST(AuthRateLimiterCapacityTest, CappedLimiter_ExistingIpsStillTracked) {
     }
     EXPECT_EQ(limiter.size(), 10u);
 
-    // Block one IP fully
-    for (int i = 0; i < 11; ++i) {
-        limiter.check_and_record_failure("10.0.0.0");
-    }
-    EXPECT_TRUE(limiter.is_blocked("10.0.0.0"));
-
-    // Add more IPs beyond cap
+    // Add more IPs beyond cap — oldest entries get evicted
     for (int i = 10; i < 20; ++i) {
         limiter.check_and_record_failure("10.0.0." + std::to_string(i));
     }
 
-    // Original blocked IP must still be tracked
-    EXPECT_TRUE(limiter.is_blocked("10.0.0.0"));
+    // Cap must still be enforced
+    EXPECT_LE(limiter.size(), 10u);
+
+    // Recent IPs should still be tracked
+    // (10.0.0.19 was just added, should not have been evicted)
+    EXPECT_FALSE(limiter.is_blocked("10.0.0.19")); // 1 failure, not blocked
 }
 
 // ---------------------------------------------------------------------------

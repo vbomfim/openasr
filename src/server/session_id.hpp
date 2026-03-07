@@ -2,27 +2,31 @@
 
 #include <string>
 #include <random>
-#include <sstream>
-#include <iomanip>
 #include <array>
 #include <cstdint>
+#include <cstring>
 
 namespace wss::server {
 
 /// Generate a session ID with 128 bits of entropy from the OS CSPRNG.
-/// Each byte is read independently from std::random_device (backed by
+/// Uses 4 std::random_device calls extracting 4 bytes each (backed by
 /// getrandom() on Linux, arc4random on macOS) — no PRNG intermediary.
 inline std::string generate_session_id() {
     std::random_device rd;
     std::array<uint8_t, 16> bytes{};
-    for (auto& b : bytes) {
-        b = static_cast<uint8_t>(rd() & 0xFF);
+    for (int i = 0; i < 4; ++i) {
+        auto v = rd();
+        std::memcpy(bytes.data() + i * 4, &v, sizeof(uint32_t));
     }
 
-    std::ostringstream oss;
-    oss << std::hex << std::setfill('0');
-    for (auto byte : bytes) oss << std::setw(2) << static_cast<int>(byte);
-    return oss.str();
+    static constexpr char hex[] = "0123456789abcdef";
+    std::string id;
+    id.reserve(32);
+    for (auto b : bytes) {
+        id.push_back(hex[b >> 4]);
+        id.push_back(hex[b & 0x0F]);
+    }
+    return id;
 }
 
 }  // namespace wss::server

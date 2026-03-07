@@ -33,12 +33,16 @@ struct AuthRateLimiter {
 
         state.failures++;
 
-        // Enforce capacity cap — evict expired entries, then oldest if needed
+        // Capture return value BEFORE eviction — evict_to_cap may
+        // invalidate `state` if this IP is the eviction victim.
+        bool is_blocked = state.failures > max_failures;
+
+        // Enforce capacity cap — evict expired entries, then oldest
         if (max_tracked_ips > 0 && ip_states_.size() > max_tracked_ips) {
             evict_to_cap(now);
         }
 
-        return state.failures > max_failures;
+        return is_blocked;
     }
 
     /// Check if an IP is currently blocked without recording a failure.
@@ -79,7 +83,7 @@ private:
     std::unordered_map<std::string, IpState> ip_states_;
 
     /// Evict entries to stay within max_tracked_ips. Remove expired first,
-    /// then entries with fewest failures (prefer keeping blocked IPs).
+    /// then oldest entries (by window_start) if still over cap.
     void evict_to_cap(std::chrono::steady_clock::time_point now) {
         // First pass: remove expired
         for (auto it = ip_states_.begin(); it != ip_states_.end();) {
@@ -89,15 +93,15 @@ private:
                 ++it;
             }
         }
-        // Second pass: if still over cap, evict entries with fewest failures
+        // Second pass: evict oldest entries (stale IPs removed first)
         while (ip_states_.size() > max_tracked_ips) {
-            auto victim = ip_states_.begin();
+            auto oldest = ip_states_.begin();
             for (auto it = ip_states_.begin(); it != ip_states_.end(); ++it) {
-                if (it->second.failures < victim->second.failures) {
-                    victim = it;
+                if (it->second.window_start < oldest->second.window_start) {
+                    oldest = it;
                 }
             }
-            ip_states_.erase(victim);
+            ip_states_.erase(oldest);
         }
     }
 };
