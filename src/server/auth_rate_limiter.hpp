@@ -17,6 +17,7 @@ struct AuthRateLimiter {
 
     size_t max_failures = 10;  // max failures per window
     std::chrono::seconds window_secs{60};  // sliding window
+    size_t max_tracked_ips = 0;  // 0 = unlimited; set >0 to cap memory
 
     /// Returns true if the IP is rate-limited (too many failures).
     bool check_and_record_failure(const std::string& ip) {
@@ -31,6 +32,12 @@ struct AuthRateLimiter {
         }
 
         state.failures++;
+
+        // Enforce capacity cap — evict expired entries, then oldest if needed
+        if (max_tracked_ips > 0 && ip_states_.size() > max_tracked_ips) {
+            evict_to_cap(now);
+        }
+
         return state.failures > max_failures;
     }
 
@@ -61,9 +68,38 @@ struct AuthRateLimiter {
         }
     }
 
+    /// Current number of tracked IPs.
+    size_t size() const {
+        std::lock_guard lock(mutex_);
+        return ip_states_.size();
+    }
+
 private:
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
     std::unordered_map<std::string, IpState> ip_states_;
+
+    /// Evict entries to stay within max_tracked_ips. Remove expired first,
+    /// then entries with fewest failures (prefer keeping blocked IPs).
+    void evict_to_cap(std::chrono::steady_clock::time_point now) {
+        // First pass: remove expired
+        for (auto it = ip_states_.begin(); it != ip_states_.end();) {
+            if (now - it->second.window_start > window_secs) {
+                it = ip_states_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        // Second pass: if still over cap, evict entries with fewest failures
+        while (ip_states_.size() > max_tracked_ips) {
+            auto victim = ip_states_.begin();
+            for (auto it = ip_states_.begin(); it != ip_states_.end(); ++it) {
+                if (it->second.failures < victim->second.failures) {
+                    victim = it;
+                }
+            }
+            ip_states_.erase(victim);
+        }
+    }
 };
 
 }  // namespace wss::server
