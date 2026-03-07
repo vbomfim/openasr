@@ -6,7 +6,7 @@ Sends malformed, oversized, and out-of-sequence messages to verify
 the server responds with proper errors without crashing.
 
 Usage:
-    python integration_tests.py --server-url ws://localhost:9090/transcribe --api-key SECRET
+    python integration_tests.py --server-url wss://localhost:9090/transcribe --api-key SECRET
 """
 
 import argparse
@@ -24,7 +24,7 @@ import websockets
 import websockets.exceptions
 
 # ── globals set by CLI args ──────────────────────────────────────────────────
-SERVER_URL: str = "ws://localhost:9090/transcribe"
+SERVER_URL: str = "wss://localhost:9090/transcribe"
 API_KEY: str = ""
 
 
@@ -927,8 +927,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--server-url",
-        default=os.environ.get("OPENASR_WS_URL", "ws://localhost:9090/transcribe"),
-        help="WebSocket endpoint (default: ws://localhost:9090/transcribe)",
+        default=os.environ.get("OPENASR_WS_URL", "wss://localhost:9090/transcribe"),
+        help="WebSocket endpoint (default: wss://localhost:9090/transcribe)",
     )
     parser.add_argument(
         "--api-key",
