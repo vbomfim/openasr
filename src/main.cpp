@@ -97,7 +97,8 @@ int main(int /*argc*/, char* /*argv*/[]) {
         wss::server::WebSocketServer::TlsConfig(),
         cfg.auth_rate_limit_max_failures, cfg.auth_rate_limit_window_secs,
         cfg.msg_rate_limit_max_per_sec, cfg.msg_rate_limit_max_bytes_per_sec,
-        cfg.trust_proxy, cfg.max_tracked_ips, cfg.trusted_proxy_hops);
+        cfg.trust_proxy, cfg.max_tracked_ips, cfg.trusted_proxy_hops,
+        cfg.max_connections);
 
     if (cfg.api_key.empty()) {
         spdlog::warn("WSS_API_KEY not set — authentication disabled (dev mode)");

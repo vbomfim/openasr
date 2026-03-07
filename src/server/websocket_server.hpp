@@ -76,7 +76,8 @@ public:
                              int msg_rate_bytes_max = 640000,
                              bool trust_proxy = false,
                              size_t max_tracked_ips = 10000,
-                             int trusted_proxy_hops = 1)
+                             int trusted_proxy_hops = 1,
+                             size_t max_connections = 100)
         : port_(port)
         , io_thread_count_(std::max(1, io_threads))
         , session_mgr_(session_mgr)
@@ -85,6 +86,7 @@ public:
         , tls_config_(std::move(tls))
         , trust_proxy_(trust_proxy)
         , trusted_proxy_hops_(trusted_proxy_hops)
+        , max_connections_(max_connections)
         , msg_rate_limit_max_per_sec_(msg_rate_max)
         , msg_rate_limit_max_bytes_per_sec_(msg_rate_bytes_max) {
         auth_limiter_.max_failures = static_cast<size_t>(auth_rate_max);
@@ -243,11 +245,10 @@ private:
 
             .open = [this](auto* ws) {
                 metrics::Metrics::instance().connections_total.Increment();
-                if (active_connections_.fetch_add(1) >= kMaxConnections) {
-                    active_connections_.fetch_sub(1);
+                if (active_connections_.fetch_add(1) >= max_connections_) {
                     metrics::Metrics::instance().connections_rejected_limit.Increment();
                     ws->close();
-                    spdlog::warn("Connection rejected: max connections ({}) reached", kMaxConnections);
+                    spdlog::warn("Connection rejected: max connections ({}) reached", max_connections_);
                     return;
                 }
                 metrics::Metrics::instance().active_connections.Increment();
@@ -824,7 +825,7 @@ private:
     bool trust_proxy_ = false;
     int trusted_proxy_hops_ = 1;
     std::atomic<size_t> active_connections_{0};
-    static constexpr size_t kMaxConnections = 100;
+    size_t max_connections_ = 100;
     AuthRateLimiter auth_limiter_;
     int msg_rate_limit_max_per_sec_ = 100;
     int msg_rate_limit_max_bytes_per_sec_ = 640000;
