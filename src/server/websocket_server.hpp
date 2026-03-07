@@ -228,7 +228,6 @@ private:
             .open = [this](auto* ws) {
                 metrics::Metrics::instance().connections_total.Increment();
                 if (active_connections_.fetch_add(1) >= max_connections_) {
-                    active_connections_.fetch_sub(1);
                     metrics::Metrics::instance().connections_rejected_limit.Increment();
                     ws->close();
                     spdlog::warn("Connection rejected: max connections ({}) reached", max_connections_);

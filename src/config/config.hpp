@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <stdexcept>
 #include <string>
 
 #include <toml++/toml.hpp>
@@ -143,7 +144,10 @@ private:
     static void apply_env_overrides(ServerConfig& cfg) {
         if (auto* v = std::getenv("WSS_HOST"))              cfg.host = v;
         if (auto* v = std::getenv("WSS_PORT"))               cfg.port = safe_atoi(v, cfg.port);
-        if (auto* v = std::getenv("WSS_MAX_SESSIONS"))       cfg.max_sessions = static_cast<size_t>(safe_atoi(v, static_cast<int>(cfg.max_sessions)));
+        if (auto* v = std::getenv("WSS_MAX_SESSIONS")) {
+            int val = safe_atoi(v, static_cast<int>(cfg.max_sessions));
+            if (val > 0) cfg.max_sessions = static_cast<size_t>(val);
+        }
         if (auto* v = std::getenv("WSS_WINDOW_DURATION_MS")) cfg.window_duration_ms = static_cast<int32_t>(safe_atoi(v, cfg.window_duration_ms));
         if (auto* v = std::getenv("WSS_OVERLAP_DURATION_MS"))cfg.overlap_duration_ms = static_cast<int32_t>(safe_atoi(v, cfg.overlap_duration_ms));
         if (auto* v = std::getenv("WSS_MAX_BUFFERED_MS"))    cfg.max_buffered_duration_ms = static_cast<int32_t>(safe_atoi(v, cfg.max_buffered_duration_ms));
@@ -174,10 +178,14 @@ private:
         }
         if (auto* v = std::getenv("WSS_TRUSTED_PROXY_HOPS"))
             cfg.trusted_proxy_hops = safe_atoi(v, cfg.trusted_proxy_hops);
-        if (auto* v = std::getenv("WSS_MAX_TRACKED_IPS"))
-            cfg.max_tracked_ips = static_cast<size_t>(safe_atoi(v, static_cast<int>(cfg.max_tracked_ips)));
-        if (auto* v = std::getenv("WSS_MAX_CONNECTIONS"))
-            cfg.max_connections = static_cast<size_t>(safe_atoi(v, static_cast<int>(cfg.max_connections)));
+        if (auto* v = std::getenv("WSS_MAX_TRACKED_IPS")) {
+            int val = safe_atoi(v, static_cast<int>(cfg.max_tracked_ips));
+            if (val > 0) cfg.max_tracked_ips = static_cast<size_t>(val);
+        }
+        if (auto* v = std::getenv("WSS_MAX_CONNECTIONS")) {
+            int val = safe_atoi(v, static_cast<int>(cfg.max_connections));
+            if (val > 0) cfg.max_connections = static_cast<size_t>(val);
+        }
     }
 
 public:
