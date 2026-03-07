@@ -35,7 +35,7 @@ TEST(ResultAggregatorTest, AddWindow_Overlapping_Deduplicates) {
     ResultAggregator agg;
     // Window 1: [0, 5000]
     agg.add_window({make_seg(0, 2000, "A"), make_seg(3000, 4500, "B")}, 5000);
-    // Window 2: [4000, 9000] — seg at 3000 would be a dup (< last_non_overlap_end of 5000)
+    // Window 2: ends at 9000 — seg "B" at 3000 is a dup (< last_non_overlap_end of 5000)
     agg.add_window({make_seg(3000, 4500, "B"), make_seg(6000, 8000, "C")}, 9000);
     // "B" at 3000 should be deduplicated; only "C" at 6000 added
     EXPECT_EQ(agg.segments().size(), 3U);

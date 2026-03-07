@@ -28,8 +28,8 @@ public:
             }
         }
 
-        // Track the non-overlap boundary for next window
-        // If overlap exists, the stable boundary is window_end minus any overlap
+        // Track the boundary for the next window's dedup filter.
+        // Segments in the next window with start_ms < this value are dropped.
         last_non_overlap_end_ms_ = window_end_ms;
         transcript_dirty_ = true;
     }
