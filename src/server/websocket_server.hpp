@@ -619,7 +619,7 @@ private:
                 reinterpret_cast<const uint8_t*>(data.data()), data.size());
         } catch (const std::exception& e) {
             spdlog::error("Audio ingestion error: session={} error={}", conn->session_id, e.what());
-            send_error(ws, conn->session_id, "AUDIO_ERROR", e.what());
+            send_error(ws, conn->session_id, "AUDIO_ERROR", "Audio processing failed");
             return;
         }
 
