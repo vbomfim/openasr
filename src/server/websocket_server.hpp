@@ -2,6 +2,9 @@
 
 #include "server/connection.hpp"
 #include "server/auth_rate_limiter.hpp"
+#include "server/ip_extraction.hpp"
+#include "server/constant_time.hpp"
+#include "server/session_id.hpp"
 #include "session/session_manager.hpp"
 #include "transcription/inference_pool.hpp"
 #include "aggregation/result_aggregator.hpp"
@@ -28,24 +31,6 @@
 
 namespace wss::server {
 
-/// Generate a cryptographically secure session ID using std::random_device
-/// (uses getrandom() syscall on modern Linux — no /dev/urandom file I/O)
-inline std::string generate_session_id() {
-    std::random_device rd;
-    std::uniform_int_distribution<uint64_t> dist;
-    std::mt19937_64 gen(rd());
-
-    std::array<uint8_t, 16> bytes{};
-    uint64_t a = dist(gen), b = dist(gen);
-    std::memcpy(bytes.data(), &a, 8);
-    std::memcpy(bytes.data() + 8, &b, 8);
-
-    std::ostringstream oss;
-    oss << std::hex << std::setfill('0');
-    for (auto byte : bytes) oss << std::setw(2) << static_cast<int>(byte);
-    return oss.str();
-}
-
 class WebSocketServer {
 public:
     /// TLS configuration. In production, TLS termination via K8s ingress or
@@ -70,17 +55,23 @@ public:
                              int auth_rate_max = 10,
                              int auth_rate_window = 60,
                              int msg_rate_max = 100,
-                             int msg_rate_bytes_max = 640000)
+                             int msg_rate_bytes_max = 640000,
+                             bool trust_proxy = false,
+                             size_t max_tracked_ips = 10000,
+                             int trusted_proxy_hops = 1)
         : port_(port)
         , io_thread_count_(std::max(1, io_threads))
         , session_mgr_(session_mgr)
         , inference_pool_(inference_pool)
         , api_key_(api_key)
         , tls_config_(std::move(tls))
+        , trust_proxy_(trust_proxy)
+        , trusted_proxy_hops_(trusted_proxy_hops)
         , msg_rate_limit_max_per_sec_(msg_rate_max)
         , msg_rate_limit_max_bytes_per_sec_(msg_rate_bytes_max) {
         auth_limiter_.max_failures = static_cast<size_t>(auth_rate_max);
         auth_limiter_.window_secs = std::chrono::seconds(auth_rate_window);
+        auth_limiter_.max_tracked_ips = max_tracked_ips;
         if (tls_config_.enabled) {
             spdlog::warn("TLS enabled in config but native TLS requires uWS::SSLApp. "
                          "Use a reverse proxy (K8s ingress, envoy) for TLS termination.");
@@ -187,11 +178,12 @@ private:
             .maxBackpressure = 1 * 1024 * 1024,
 
             .upgrade = [this](auto* res, auto* req, auto* context) {
-                // Extract client IP for rate limiting
-                std::string client_ip(req->getHeader("x-forwarded-for"));
-                if (client_ip.empty()) {
-                    client_ip = std::string(res->getRemoteAddressAsText());
-                }
+                // Extract client IP — only trust X-Forwarded-For behind a known proxy
+                std::string client_ip = extract_client_ip(
+                    req->getHeader("x-forwarded-for"),
+                    res->getRemoteAddressAsText(),
+                    trust_proxy_,
+                    trusted_proxy_hops_);
 
                 // Check if IP is already rate-limited (#20)
                 if (!api_key_.empty() && auth_limiter_.is_blocked(client_ip)) {
@@ -206,7 +198,8 @@ private:
 
                 if (!authenticated) {
                     std::string_view auth = req->getHeader("authorization");
-                    if (auth.size() > 7 && auth.substr(0, 7) == "Bearer " && auth.substr(7) == api_key_) {
+                    if (auth.size() > 7 && auth.substr(0, 7) == "Bearer " &&
+                        constant_time_equals(auth.substr(7), api_key_)) {
                         authenticated = true;
                     }
                 }
@@ -511,8 +504,16 @@ private:
 
         // Assign or resume session
         if (config.resume_checkpoint) {
+            // Reject if session ID is already in use (prevents hijacking #38)
+            auto* existing = session_mgr_.get_session(
+                config.resume_checkpoint->session_id);
+            if (existing) {
+                send_error(ws, conn->session_id, "SESSION_CONFLICT",
+                    "Cannot resume: session ID already in use");
+                return;
+            }
             conn->session_id = config.resume_checkpoint->session_id;
-            spdlog::info("Resuming session: {}", conn->session_id);
+            spdlog::info("Resuming from checkpoint: {}", conn->session_id);
         } else {
             conn->session_id = generate_session_id();
             spdlog::info("New session: {}", conn->session_id);
@@ -798,6 +799,8 @@ private:
     transcription::InferencePool& inference_pool_;
     std::string api_key_;
     TlsConfig tls_config_;
+    bool trust_proxy_ = false;
+    int trusted_proxy_hops_ = 1;
     std::atomic<size_t> active_connections_{0};
     static constexpr size_t kMaxConnections = 100;
     AuthRateLimiter auth_limiter_;

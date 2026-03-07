@@ -17,6 +17,7 @@ struct AuthRateLimiter {
 
     size_t max_failures = 10;  // max failures per window
     std::chrono::seconds window_secs{60};  // sliding window
+    size_t max_tracked_ips = 0;  // 0 = unlimited; set >0 to cap memory
 
     /// Returns true if the IP is rate-limited (too many failures).
     bool check_and_record_failure(const std::string& ip) {
@@ -31,7 +32,17 @@ struct AuthRateLimiter {
         }
 
         state.failures++;
-        return state.failures > max_failures;
+
+        // Capture return value BEFORE eviction — evict_to_cap may
+        // invalidate `state` if this IP is the eviction victim.
+        bool is_blocked = state.failures > max_failures;
+
+        // Enforce capacity cap — evict expired entries, then oldest
+        if (max_tracked_ips > 0 && ip_states_.size() > max_tracked_ips) {
+            evict_to_cap(now);
+        }
+
+        return is_blocked;
     }
 
     /// Check if an IP is currently blocked without recording a failure.
@@ -61,9 +72,38 @@ struct AuthRateLimiter {
         }
     }
 
+    /// Current number of tracked IPs.
+    size_t size() const {
+        std::lock_guard lock(mutex_);
+        return ip_states_.size();
+    }
+
 private:
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
     std::unordered_map<std::string, IpState> ip_states_;
+
+    /// Evict entries to stay within max_tracked_ips. Remove expired first,
+    /// then oldest entries (by window_start) if still over cap.
+    void evict_to_cap(std::chrono::steady_clock::time_point now) {
+        // First pass: remove expired
+        for (auto it = ip_states_.begin(); it != ip_states_.end();) {
+            if (now - it->second.window_start > window_secs) {
+                it = ip_states_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        // Second pass: evict oldest entries (stale IPs removed first)
+        while (ip_states_.size() > max_tracked_ips) {
+            auto oldest = ip_states_.begin();
+            for (auto it = ip_states_.begin(); it != ip_states_.end(); ++it) {
+                if (it->second.window_start < oldest->second.window_start) {
+                    oldest = it;
+                }
+            }
+            ip_states_.erase(oldest);
+        }
+    }
 };
 
 }  // namespace wss::server

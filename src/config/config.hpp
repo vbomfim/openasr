@@ -59,6 +59,11 @@ struct ServerConfig {
     int msg_rate_limit_max_per_sec = 100;   // max messages/sec per session
     int msg_rate_limit_max_bytes_per_sec = 640000; // max bytes/sec per session
 
+    // Proxy trust (#28)
+    bool trust_proxy = false;       // set WSS_TRUST_PROXY=true behind a reverse proxy
+    int trusted_proxy_hops = 1;     // number of trusted proxy hops for XFF parsing
+    size_t max_tracked_ips = 10000; // max IPs tracked by auth rate limiter
+
     /// Load configuration from environment variables.
     static ServerConfig from_env() {
         ServerConfig cfg;
@@ -91,6 +96,13 @@ struct ServerConfig {
             cfg.msg_rate_limit_max_per_sec = safe_atoi(v, cfg.msg_rate_limit_max_per_sec);
         if (auto* v = std::getenv("WSS_MSG_RATE_LIMIT_BYTES"))
             cfg.msg_rate_limit_max_bytes_per_sec = safe_atoi(v, cfg.msg_rate_limit_max_bytes_per_sec);
+        if (auto* v = std::getenv("WSS_TRUST_PROXY")) {
+            cfg.trust_proxy = (std::string(v) == "true" || std::string(v) == "1");
+        }
+        if (auto* v = std::getenv("WSS_TRUSTED_PROXY_HOPS"))
+            cfg.trusted_proxy_hops = safe_atoi(v, cfg.trusted_proxy_hops);
+        if (auto* v = std::getenv("WSS_MAX_TRACKED_IPS"))
+            cfg.max_tracked_ips = static_cast<size_t>(safe_atoi(v, static_cast<int>(cfg.max_tracked_ips)));
 
         return cfg;
     }
@@ -182,6 +194,13 @@ struct ServerConfig {
             cfg.msg_rate_limit_max_per_sec = safe_atoi(v, cfg.msg_rate_limit_max_per_sec);
         if (auto* v = std::getenv("WSS_MSG_RATE_LIMIT_BYTES"))
             cfg.msg_rate_limit_max_bytes_per_sec = safe_atoi(v, cfg.msg_rate_limit_max_bytes_per_sec);
+        if (auto* v = std::getenv("WSS_TRUST_PROXY")) {
+            cfg.trust_proxy = (std::string(v) == "true" || std::string(v) == "1");
+        }
+        if (auto* v = std::getenv("WSS_TRUSTED_PROXY_HOPS"))
+            cfg.trusted_proxy_hops = safe_atoi(v, cfg.trusted_proxy_hops);
+        if (auto* v = std::getenv("WSS_MAX_TRACKED_IPS"))
+            cfg.max_tracked_ips = static_cast<size_t>(safe_atoi(v, static_cast<int>(cfg.max_tracked_ips)));
 
         return cfg;
     }

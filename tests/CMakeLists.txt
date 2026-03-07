@@ -15,6 +15,10 @@ add_executable(openasr_tests
     test_json_formatter.cpp
     test_vad.cpp
     test_auth_rate_limiter.cpp
+    test_session_id.cpp
+    test_ip_extraction.cpp
+    test_rate_limiter_capacity.cpp
+    test_constant_time.cpp
 )
 
 target_include_directories(openasr_tests PRIVATE
