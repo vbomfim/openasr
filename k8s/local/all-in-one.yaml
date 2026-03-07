@@ -18,9 +18,18 @@ data:
   WSS_LANGUAGE: "en"
   WSS_BEAM_SIZE: "5"
   WSS_CONFIG_PATH: "/dev/null"
-  WSS_API_KEY: "dev-test-key-change-in-production"
 ---
 apiVersion: apps/v1
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: whisperx-server-secrets
+  namespace: whisperx
+type: Opaque
+stringData:
+  WSS_API_KEY: "CHANGE-ME-IN-PRODUCTION"
+---
 kind: Deployment
 metadata:
   name: whisperx-server
@@ -63,6 +72,8 @@ spec:
             - containerPort: 9090
           envFrom:
             - configMapRef:
+            - secretRef:
+                name: whisperx-server-secrets
                 name: whisperx-server-config
           env:
             - name: WHISPER_MODEL_PATH
