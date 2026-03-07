@@ -8,16 +8,24 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-body-size: "16m"
     nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/limit-connections: "20"
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
   ingressClassName: nginx
   rules:
     - host: whisperx.local
       http:
         paths:
-          - path: /
+          - path: /transcribe
             pathType: Prefix
             backend:
               service:
                 name: whisperx-server
                 port:
                   number: 9090
+  # Uncomment for production TLS (requires cert-manager or manual secret):
+  # tls:
+  #   - hosts:
+  #       - whisperx.example.com
+  #     secretName: whisperx-tls-cert
