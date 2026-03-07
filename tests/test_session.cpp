@@ -143,3 +143,31 @@ TEST(Session, VadDisabled_Default) {
     Session s(make_config());
     EXPECT_FALSE(s.config().vad_enabled);
 }
+
+// T11-14: Concurrent ingest_audio and window_ready (TSAN regression)
+TEST(Session, ConcurrentIngestAndWindowReady) {
+    Session s(make_config());
+    constexpr int kIterations = 5000;
+    auto pcm = make_silence_pcm(160); // 10ms chunk
+
+    std::atomic<bool> stop{false};
+
+    // Writer thread: continuously ingest audio
+    std::thread writer([&] {
+        for (int i = 0; i < kIterations && !stop.load(); ++i) {
+            s.ingest_audio(pcm.data(), pcm.size());
+        }
+        stop.store(true);
+    });
+
+    // Reader thread: continuously poll window_ready
+    std::thread reader([&] {
+        while (!stop.load()) {
+            [[maybe_unused]] bool ready = s.window_ready();
+        }
+    });
+
+    writer.join();
+    reader.join();
+    // If we reach here without TSAN errors or crashes, the test passes.
+}

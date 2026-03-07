@@ -10,5 +10,5 @@
 
 TEST(WebSocketServerIntegration, PlaceholderForFutureTests) {
     // TODO: Add in-process integration tests using a mock transport
-    SUCCEED();
+    GTEST_SKIP("In-process WebSocketServer integration tests not yet implemented");
 }

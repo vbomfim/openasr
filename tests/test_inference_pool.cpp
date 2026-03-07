@@ -123,10 +123,16 @@ TEST(InferencePoolTest, PendingAndDrainComplete) {
 
     {
         std::unique_lock lk(mu);
-        cv.wait_for(lk, 5s, [&] { return done; });
+        ASSERT_TRUE(cv.wait_for(lk, 5s, [&] { return done; }))
+            << "Callback was not invoked within 5 seconds";
     }
 
-    // Give the pool a moment to decrement active_jobs_
-    std::this_thread::sleep_for(50ms);
+    // Poll for drain_complete() with a timeout instead of a fixed sleep.
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (!pool.drain_complete()) {
+        ASSERT_LT(std::chrono::steady_clock::now(), deadline)
+            << "drain_complete() did not become true within 2 seconds";
+        std::this_thread::sleep_for(1ms);
+    }
     EXPECT_TRUE(pool.drain_complete());
 }
