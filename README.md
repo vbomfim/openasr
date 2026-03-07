@@ -132,11 +132,11 @@ Set the key as an environment variable when starting the server:
 
 ```bash
 # Docker
-docker run -e WSS_API_KEY=a3f1b9c7e8d2f4a6b0c5e7d9f1a3b5c7... ghcr.io/vbomfim/openasr:base.en
+docker run -e WSS_API_KEY=<your-api-key-here> ghcr.io/vbomfim/openasr:base.en
 
 # Kubernetes (use a Secret, not a ConfigMap)
 kubectl create secret generic openasr-api-key \
-  --from-literal=WSS_API_KEY=a3f1b9c7e8d2f4a6b0c5e7d9f1a3b5c7... \
+  --from-literal=WSS_API_KEY=<your-api-key-here> \
   -n whisperx
 ```
 
