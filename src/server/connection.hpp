@@ -9,9 +9,9 @@
 namespace wss::server {
 
 /// Connection lifecycle states
+/// State machine: CONNECTED → STREAMING → ENDING → CLOSED
 enum class ConnectionState {
     CONNECTED,       // WebSocket open, awaiting speech.config
-    HELLO_RECEIVED,  // speech.config processed, session active
     STREAMING,       // Receiving audio binary frames
     ENDING,          // speech.end received, finalizing
     CLOSED           // Connection closed
@@ -20,7 +20,6 @@ enum class ConnectionState {
 inline std::string_view to_string(ConnectionState state) {
     switch (state) {
         case ConnectionState::CONNECTED:      return "CONNECTED";
-        case ConnectionState::HELLO_RECEIVED: return "HELLO_RECEIVED";
         case ConnectionState::STREAMING:      return "STREAMING";
         case ConnectionState::ENDING:         return "ENDING";
         case ConnectionState::CLOSED:         return "CLOSED";

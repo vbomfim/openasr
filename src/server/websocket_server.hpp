@@ -31,6 +31,24 @@
 
 namespace wss::server {
 
+/// WebSocketServer is currently a "god class" (~800 lines) responsible for:
+///   1. Connection lifecycle management (open/close/drain)
+///   2. Protocol message routing and validation
+///   3. Audio ingestion and backpressure control
+///   4. Inference job dispatch
+///   5. Result delivery and checkpoint management
+///   6. Metrics instrumentation
+///   7. TLS and authentication
+///
+/// Planned decomposition (tracked in #48):
+///   - ConnectionManager   — connection lifecycle, drain logic, limits
+///   - MessageRouter       — protocol dispatch, text/binary routing
+///   - AudioPipeline       — ingestion, rate limiting, backpressure, windowing
+///   - ResultDelivery      — hypothesis/phrase/checkpoint formatting and send
+///   - MetricsInstrumentation — all Prometheus counter/gauge updates
+///
+/// This PR begins the refactoring by extracting check_message_rate() and
+/// process_ready_windows() from handle_binary() (#57).
 class WebSocketServer {
 public:
     /// TLS configuration. In production, TLS termination via K8s ingress or
@@ -568,19 +586,12 @@ private:
         conn->state = ConnectionState::STREAMING;
     }
 
-    void handle_binary(WebSocket* ws, ConnectionData* conn, std::string_view data) {
-        if (conn->state != ConnectionState::STREAMING) {
-            send_error(ws, conn->session_id, "INVALID_STATE",
-                "Binary data only allowed during STREAMING");
-            return;
-        }
-
-        // Per-session message rate limiting (#21)
+    /// Returns true if the message should be dropped due to rate limiting.
+    bool check_message_rate([[maybe_unused]] WebSocket* ws, ConnectionData* conn, size_t data_size) {
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
             now - conn->rate_window_start);
         if (elapsed >= std::chrono::seconds(1)) {
-            // Reset window
             conn->messages_this_window = 0;
             conn->bytes_this_window = 0;
             conn->rate_window_start = now;
@@ -591,7 +602,7 @@ private:
         }
 
         conn->messages_this_window++;
-        conn->bytes_this_window += data.size();
+        conn->bytes_this_window += data_size;
 
         if (static_cast<int>(conn->messages_this_window) > msg_rate_limit_max_per_sec_ ||
             static_cast<int>(conn->bytes_this_window) > msg_rate_limit_max_bytes_per_sec_) {
@@ -603,8 +614,44 @@ private:
                 send_to_session(conn->session_id,
                     protocol::make_speech_backpressure(conn->session_id, "slow_down"));
             }
-            return; // drop the frame
+            return true;
         }
+        return false;
+    }
+
+    /// Extracts ready audio windows from the session and submits inference jobs.
+    void process_ready_windows([[maybe_unused]] WebSocket* ws, ConnectionData* conn, session::Session* session) {
+        while (session->window_ready()) {
+            auto window = session->extract_window();
+            if (window.count == 0) break;
+
+            transcription::InferenceJob job;
+            job.session_id = conn->session_id;
+            job.audio.assign(window.samples, window.samples + window.count);
+            job.window_start_ms = window.start_ms;
+            job.window_end_ms = window.end_ms;
+
+            job.on_complete = [this](const std::string& sid,
+                                     transcription::TranscriptionResult result,
+                                     int64_t start_ms, int64_t end_ms) {
+                on_inference_complete(sid, std::move(result), start_ms, end_ms);
+            };
+
+            inference_pool_.submit(std::move(job));
+            metrics::Metrics::instance().inference_jobs_submitted_total.Increment();
+            spdlog::debug("Inference job submitted: session={} window=[{}ms, {}ms]",
+                conn->session_id, window.start_ms, window.end_ms);
+        }
+    }
+
+    void handle_binary(WebSocket* ws, ConnectionData* conn, std::string_view data) {
+        if (conn->state != ConnectionState::STREAMING) {
+            send_error(ws, conn->session_id, "INVALID_STATE",
+                "Binary data only allowed during STREAMING");
+            return;
+        }
+
+        if (check_message_rate(ws, conn, data.size())) return;
 
         auto* session = session_mgr_.get_session(conn->session_id);
         if (!session) {
@@ -646,31 +693,7 @@ private:
             conn->backpressure_sent = false;
         }
 
-        // Check if a window is ready and dispatch inference
-        while (session->window_ready()) {
-            auto window = session->extract_window();
-            if (window.count == 0) break;
-
-            // Copy window data into the job (ring buffer may be overwritten)
-            transcription::InferenceJob job;
-            job.session_id = conn->session_id;
-            job.audio.assign(window.samples, window.samples + window.count);
-            job.window_start_ms = window.start_ms;
-            job.window_end_ms = window.end_ms;
-
-            // Capture ws for callback — NOTE: uWS callbacks must be called from the event loop
-            // For now, log results. Full async delivery requires uWS loop integration.
-            job.on_complete = [this](const std::string& sid,
-                                     transcription::TranscriptionResult result,
-                                     int64_t start_ms, int64_t end_ms) {
-                on_inference_complete(sid, std::move(result), start_ms, end_ms);
-            };
-
-            inference_pool_.submit(std::move(job));
-            metrics::Metrics::instance().inference_jobs_submitted_total.Increment();
-            spdlog::debug("Inference job submitted: session={} window=[{}ms, {}ms]",
-                conn->session_id, window.start_ms, window.end_ms);
-        }
+        process_ready_windows(ws, conn, session);
     }
 
     void on_inference_complete(const std::string& session_id,
@@ -722,8 +745,7 @@ private:
     }
 
     void handle_speech_end(WebSocket* ws, ConnectionData* conn) {
-        if (conn->state != ConnectionState::STREAMING &&
-            conn->state != ConnectionState::HELLO_RECEIVED) {
+        if (conn->state != ConnectionState::STREAMING) {
             send_error(ws, conn->session_id, "INVALID_STATE",
                 "speech.end only allowed after speech.config");
             return;
