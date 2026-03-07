@@ -1,0 +1,16 @@
+version: v0.1
+testId: openasr-stress-test
+testPlan: test-plans/stress/stress-test.jmx
+engineInstances: 5
+configurationFiles:
+  - data/audio/sample-medium-30s.raw
+  - data/speech-configs.csv
+  - properties/staging.properties
+zipArtifacts:
+  - plugins/jmeter-websocket-samplers-1.3.1.jar
+  - fragments/ws-connect-and-config.jmx
+  - fragments/ws-send-audio.jmx
+  - fragments/ws-receive-results.jmx
+  - fragments/ws-teardown.jmx
+failureCriteria:
+  - percentage(error) > 50

@@ -1,0 +1,7 @@
+language,sample_rate,encoding,window_duration_ms,overlap_duration_ms
+en,16000,pcm_s16le,20000,2000
+en,16000,pcm_s16le,10000,1000
+en,44100,pcm_s16le,20000,2000
+es,16000,pcm_s16le,20000,2000
+pt,16000,pcm_s16le,30000,3000
+fr,16000,pcm_s16le,20000,2000

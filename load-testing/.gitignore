@@ -1,0 +1,13 @@
+# Test results (generated, don't commit)
+results/**
+!results/.gitkeep
+
+# JMeter runtime files
+jmeter.log
+*.jtl
+
+# Plugin binaries (download via ./scripts/download-plugin.sh)
+plugins/*.jar
+
+# Audio samples (generate via ./scripts/generate-audio-samples.sh)
+data/audio/*.raw

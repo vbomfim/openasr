@@ -1,0 +1,6 @@
+# Placeholder — populate with actual Bearer tokens when auth is enabled.
+# Each JMeter thread reads one row (CSV DataSet Config, recycle=true).
+token
+test-token-placeholder-1
+test-token-placeholder-2
+test-token-placeholder-3
