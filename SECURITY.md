@@ -102,3 +102,36 @@ All 36 tests pass — server survives every attack pattern without crash or reso
 - Benchmark tool (`tools/benchmark.py`) for sustained multi-session testing
 - Tested with 5 concurrent sessions over extended periods
 - Memory stable (no growth over time), zero errors
+
+## Deployment Security Model
+
+> **This service is designed to run behind infrastructure safeguards.** It does not implement all security controls at the application layer — it relies on the deployment environment to provide network isolation, TLS encryption, and access control for internal endpoints.
+
+### Assumptions
+
+The following safeguards are expected in any production deployment:
+
+| Layer | Responsibility | How |
+|---|---|---|
+| **TLS termination** | Kubernetes Ingress or reverse proxy (nginx, Envoy) | The server listens on plaintext; TLS is terminated at the edge. Bearer tokens and audio data are protected in transit by the proxy, not the application. |
+| **Network segmentation** | Kubernetes NetworkPolicy | Internal endpoints (`/health`, `/ready`, `/metrics`) are intentionally unauthenticated for K8s liveness/readiness probes and Prometheus scraping. A NetworkPolicy must restrict port 9090 access to only the ingress controller and monitoring namespace. |
+| **Ingress path restriction** | Ingress route configuration | Only `/transcribe` should be exposed externally. Internal endpoints must not be routed through the public ingress. |
+| **Secret management** | Kubernetes Secrets or external vault | `WSS_API_KEY` should be stored in a Kubernetes Secret (not a ConfigMap) and rotated periodically. |
+
+### What the application provides
+
+- Bearer token authentication on `/transcribe` (checked **before** WebSocket upgrade)
+- Input validation on all JSON fields (types, ranges, string lengths, encoding whitelist)
+- Per-session resource limits (max connections, max sessions, inference queue depth, transcript cap, session timeout)
+- Backpressure signaling at 80% buffer fill
+- Memory-safe buffer handling (fixed-capacity ring buffer, RAII guards, bounds checks)
+- Security-hardened compilation (stack protector, FORTIFY_SOURCE, full RELRO)
+- Distroless container image running as non-root with no capabilities
+
+### What the application does NOT provide
+
+- TLS encryption (by design — delegated to ingress/proxy)
+- Authentication on `/health`, `/ready`, `/metrics` (by design — these are internal probe/scrape endpoints)
+- Per-IP rate limiting on auth failures (recommended to add via ingress annotations or application-level logic — see [#20](https://github.com/vbomfim/openasr/issues/20))
+- Per-session message rate limiting (recommended — see [#21](https://github.com/vbomfim/openasr/issues/21))
+- Kubernetes NetworkPolicy (must be deployed separately — see [#22](https://github.com/vbomfim/openasr/issues/22))

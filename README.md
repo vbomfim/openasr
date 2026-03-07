@@ -27,6 +27,8 @@ A production-grade, memory-efficient C++20 WebSocket server for real-time audio 
 - **API key authentication** — Bearer token in header
 - **Kubernetes-ready** — multi-stage Docker image, health checks, Helm-friendly
 
+> **⚠️ Deployment Notice:** This service is designed to run behind infrastructure safeguards — a Kubernetes Ingress (or reverse proxy) for TLS termination and a NetworkPolicy for network segmentation. Internal endpoints (`/health`, `/ready`, `/metrics`) are intentionally unauthenticated for K8s probes and Prometheus scraping, and must not be exposed to untrusted networks. See [SECURITY.md](SECURITY.md) for the full deployment security model.
+
 ---
 
 ## Quick Start
