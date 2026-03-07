@@ -197,6 +197,7 @@ Audio chunks fill the ring buffer until window_ready = true:
 | [Spike](#4-spike-test) | 2→25→2 | Instant | 5 min | 5s | 5s | Burst and recovery |
 | [Endurance](#5-endurance-test) | 15 | 3 min | 2 hrs | 120s | 20s | Memory leaks, drift |
 | [API Benchmark](#6-api-benchmark) | 100 HTTP | 1 min | 10 min | — | — | HTTP endpoint throughput |
+| [Security](#7-security-test) | 15+1+3 | 10s | 1 min | 5s | 5s | Rate limiting validation |
 
 ---
 
@@ -384,6 +385,35 @@ Audio chunks fill the ring buffer until window_ready = true:
 
 ---
 
+### 7. Security Test
+
+**File:** `test-plans/security/security-test.jmx`
+
+**Goal:** Validate that rate limiting protections work under load.
+
+Three parallel thread groups run simultaneously:
+
+| Thread Group | Threads | Purpose |
+|---|---|---|
+| **Auth Brute-Force** | 15 | Rapid connections with wrong Bearer tokens |
+| **Legitimate Session** | 1 | Full transcription flow with correct auth |
+| **Message Flood** | 3 | 500 binary frames per thread, no pacing |
+
+**What it validates:**
+- First ~10 auth failures return `401`, subsequent return `429 Too Many Requests`
+- Legitimate session completes successfully **during** the brute-force attack
+- Message flood triggers `speech.backpressure` or graceful frame dropping
+- Server remains healthy throughout (no crash, no resource leak)
+
+**Pass criteria:**
+- Auth brute-force threads see 429 after initial 401s
+- Legitimate session: 0 failures
+- Server `/health` returns 200 after test completes
+
+**When to run:** After deploying rate limiting changes. Part of security regression testing.
+
+---
+
 ## Project Structure
 
 ```
@@ -398,7 +428,8 @@ load-testing/
 │   ├── stress/stress-test.jmx           # 50 sessions, 15 min
 │   ├── spike/spike-test.jmx             # 2→25→2, 5 min
 │   ├── endurance/endurance-test.jmx     # 15 sessions, 2 hrs
-│   └── api-benchmark/api-benchmark.jmx  # HTTP-only, 10 min
+│   ├── api-benchmark/api-benchmark.jmx  # HTTP-only, 10 min
+│   └── security/security-test.jmx      # Rate limiting validation
 │
 ├── fragments/                             # Reusable JMeter test fragments (for ALT)
 │   ├── ws-connect-and-config.jmx         # WS open + speech.config + assert ack

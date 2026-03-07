@@ -5,7 +5,7 @@
 [![CodeQL](https://github.com/vbomfim/openasr/actions/workflows/codeql.yml/badge.svg)](https://github.com/vbomfim/openasr/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Coverage: 95.5%](https://img.shields.io/badge/coverage-95.5%25-brightgreen)](SECURITY.md#testing--verification)
-[![Tests: 214](https://img.shields.io/badge/tests-214%20passing-brightgreen)](SECURITY.md#testing--verification)
+[![Tests: 232](https://img.shields.io/badge/tests-232%20passing-brightgreen)](SECURITY.md#testing--verification)
 
 A production-grade, memory-efficient C++20 WebSocket server for real-time audio transcription, powered by [whisper.cpp](https://github.com/ggerganov/whisper.cpp). The protocol is aligned with Azure Cognitive Services Speech-to-Text conventions.
 
@@ -25,7 +25,8 @@ A production-grade, memory-efficient C++20 WebSocket server for real-time audio 
 - **PCM and Opus audio** at any sample rate (8–96 kHz, resampled internally to 16 kHz)
 - **Stateless checkpointing** — resume sessions on any server node
 - **API key authentication** — Bearer token in header
-- **Kubernetes-ready** — multi-stage Docker image, health checks, Helm-friendly
+- **Rate limiting** — per-IP auth brute-force protection (429) and per-session message throttling
+- **Kubernetes-ready** — multi-stage Docker image, health checks, NetworkPolicy, Helm-friendly
 
 > **⚠️ Deployment Notice:** This service is designed to run behind infrastructure safeguards — a Kubernetes Ingress (or reverse proxy) for TLS termination and a NetworkPolicy for network segmentation. Internal endpoints (`/health`, `/ready`, `/metrics`) are intentionally unauthenticated for K8s probes and Prometheus scraping, and must not be exposed to untrusted networks. See [SECURITY.md](SECURITY.md) for the full deployment security model.
 

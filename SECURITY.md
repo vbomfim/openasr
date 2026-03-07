@@ -47,6 +47,9 @@ We will acknowledge receipt within 48 hours and provide a fix timeline within 7 
 - Backpressure signaling at 80% ring buffer fill
 - WebSocket idle timeout: 120 seconds
 - Max frame size: 16 MB
+- Per-IP auth failure rate limiting: 10 failures per 60s window → `429 Too Many Requests` (configurable via `WSS_AUTH_RATE_LIMIT_MAX`, `WSS_AUTH_RATE_LIMIT_WINDOW`)
+- Per-session message rate limiting: 100 msgs/s, 640 KB/s → frames dropped with `speech.backpressure` (configurable via `WSS_MSG_RATE_LIMIT_MAX`, `WSS_MSG_RATE_LIMIT_BYTES`)
+- Kubernetes Ingress rate limiting: 20 max connections, 50 rps per client IP (via nginx annotations)
 
 ### Memory Safety
 - Exception handling wraps all audio processing (Opus decode, resampling, JSON parsing)
@@ -76,14 +79,16 @@ We will acknowledge receipt within 48 hours and provide a fix timeline within 7 
 
 ## Testing & Verification
 
-### Unit Tests (178 tests, 95.5% line coverage)
-- 13 test suites covering all core components
+### Unit Tests (232 tests)
+- 15 test suites covering all core components
 - Boundary analysis on every numeric input (min, max, zero, negative, off-by-one)
 - JSON serialization roundtrip tests for all message types
 - Thread safety tests with concurrent checkout/checkin
 - Exception path verification (corrupt Opus, resampler errors)
+- Auth rate limiter: threshold, window expiry, cleanup, IP independence, concurrent access
+- Per-session rate tracking: defaults, increment, reset, flag toggle
 
-### Adversarial Integration Tests (36 tests)
+### Adversarial Integration Tests (39 tests)
 Automated attack patterns run against a live server instance:
 
 | Category | Tests | What's tested |
@@ -94,14 +99,16 @@ Automated attack patterns run against a live server instance:
 | **Invalid values** | 13 | Wrong types, out-of-range, null, oversized strings |
 | **Payload abuse** | 4 | 1 MB JSON, empty/odd/single-byte binary frames |
 | **Stress** | 3 | 50 rapid connects, 20 config+close cycles, audio without end |
+| **Security rate limiting** | 3 | Auth brute-force → 429, correct key after rate limit, message flood → backpressure |
 | **Survival** | 2 | Health + readiness OK after all attacks |
 
-All 36 tests pass — server survives every attack pattern without crash or resource leak.
+All 39 tests pass — server survives every attack pattern without crash or resource leak.
 
 ### Load Testing
-- Benchmark tool (`tools/benchmark.py`) for sustained multi-session testing
-- Tested with 5 concurrent sessions over extended periods
-- Memory stable (no growth over time), zero errors
+- Azure Load Testing suite with JMeter (see [`load-testing/`](load-testing/README.md))
+- 7 scenarios: smoke, load, stress, spike, endurance, API benchmark, **security**
+- Security load test validates auth brute-force (401 → 429), legitimate session resilience, and message flood handling
+- Tested with up to 20 concurrent sessions; memory stable, zero errors
 
 ## Deployment Security Model
 
@@ -131,7 +138,4 @@ The following safeguards are expected in any production deployment:
 ### What the application does NOT provide
 
 - TLS encryption (by design — delegated to ingress/proxy)
-- Authentication on `/health`, `/ready`, `/metrics` (by design — these are internal probe/scrape endpoints)
-- Per-IP rate limiting on auth failures (recommended to add via ingress annotations or application-level logic — see [#20](https://github.com/vbomfim/openasr/issues/20))
-- Per-session message rate limiting (recommended — see [#21](https://github.com/vbomfim/openasr/issues/21))
-- Kubernetes NetworkPolicy (must be deployed separately — see [#22](https://github.com/vbomfim/openasr/issues/22))
+- Authentication on `/health`, `/ready`, `/metrics` (by design — these are internal probe/scrape endpoints, isolated via NetworkPolicy)
