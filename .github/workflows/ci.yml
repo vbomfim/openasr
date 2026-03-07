@@ -61,6 +61,7 @@ jobs:
           mkdir -p models
           curl -L -o models/ggml-tiny.en.bin \
             https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
+          echo "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f  models/ggml-tiny.en.bin" | sha256sum -c -
 
       - name: Start server
         run: |
