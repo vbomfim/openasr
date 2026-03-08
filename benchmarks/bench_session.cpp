@@ -86,15 +86,24 @@ BENCHMARK(BM_Session_Create);
 // ---------------------------------------------------------------------------
 void BM_SessionManager_CreateDestroy(benchmark::State& state) {
     wss::session::SessionManager mgr(100);
-    int64_t iteration = 0;
 
+    // Pre-generate session IDs outside the timed loop
+    constexpr size_t kMaxIterations = 10000;
+    std::vector<std::string> ids;
+    ids.reserve(kMaxIterations);
+    for (size_t i = 0; i < kMaxIterations; ++i) {
+        ids.push_back("bench-" + std::to_string(i));
+    }
+
+    size_t iteration = 0;
     for (auto _ : state) {
-        auto id = "bench-" + std::to_string(iteration++);
+        const auto& id = ids[iteration % kMaxIterations];
         auto config = make_bench_config(id);
         auto* session = mgr.create_session(std::move(config));
         benchmark::DoNotOptimize(session);
         mgr.destroy_session(id);
         benchmark::ClobberMemory();
+        ++iteration;
     }
 }
 
@@ -108,12 +117,19 @@ BENCHMARK(BM_SessionManager_CreateDestroy);
 void BM_SessionManager_CreateMany(benchmark::State& state) {
     const auto num_sessions = static_cast<size_t>(state.range(0));
 
+    // Pre-generate session IDs outside the timed loop
+    std::vector<std::string> ids;
+    ids.reserve(num_sessions);
+    for (size_t i = 0; i < num_sessions; ++i) {
+        ids.push_back("s-" + std::to_string(i));
+    }
+
     for (auto _ : state) {
         wss::session::SessionManager mgr(num_sessions + 1);
 
         // Create N sessions
         for (size_t i = 0; i < num_sessions; ++i) {
-            auto config = make_bench_config("s-" + std::to_string(i));
+            auto config = make_bench_config(ids[i]);
             auto* session = mgr.create_session(std::move(config));
             benchmark::DoNotOptimize(session);
         }
@@ -122,7 +138,7 @@ void BM_SessionManager_CreateMany(benchmark::State& state) {
 
         // Destroy all sessions
         for (size_t i = 0; i < num_sessions; ++i) {
-            mgr.destroy_session("s-" + std::to_string(i));
+            mgr.destroy_session(ids[i]);
         }
         benchmark::ClobberMemory();
     }
