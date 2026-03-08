@@ -48,6 +48,16 @@ jobs:
             --benchmark_min_time=0.5s \
             --benchmark_repetitions=3
 
+      - name: Check for benchmark baseline
+        id: check-baseline
+        run: |
+          if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "No benchmark baseline yet (first run — comparison skipped)"
+          fi
+
       - name: Store benchmark results
         uses: benchmark-action/github-action-benchmark@v1
         with:
@@ -55,7 +65,8 @@ jobs:
           output-file-path: benchmark_results.json
           benchmark-data-dir-path: dev/bench
           alert-threshold: "115%"
-          fail-on-alert: ${{ github.event_name == 'pull_request' }}
+          fail-on-alert: ${{ github.event_name == 'pull_request' && steps.check-baseline.outputs.exists == 'true' }}
           comment-on-alert: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          skip-fetch-gh-pages: ${{ steps.check-baseline.outputs.exists == 'false' }}
