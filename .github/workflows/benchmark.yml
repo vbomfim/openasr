@@ -46,7 +46,25 @@ jobs:
             --benchmark_format=json \
             --benchmark_out=benchmark_results.json \
             --benchmark_min_time=0.5s \
-            --benchmark_repetitions=3
+            --benchmark_repetitions=3 \
+            --benchmark_report_aggregates_only=true
+
+      - name: Filter benchmark results
+        run: |
+          python3 -c "
+          import json
+          with open('benchmark_results.json') as f:
+              data = json.load(f)
+          # Remove _stddev and _cv aggregates — they cause false positives
+          # on shared CI runners with few baseline data points
+          data['benchmarks'] = [
+              b for b in data['benchmarks']
+              if not b['name'].endswith('_stddev') and not b['name'].endswith('_cv')
+          ]
+          with open('benchmark_results.json', 'w') as f:
+              json.dump(data, f, indent=2)
+          print(f'Filtered to {len(data[\"benchmarks\"])} benchmarks (removed stddev/cv aggregates)')
+          "
 
       - name: Check for benchmark baseline
         id: check-baseline
