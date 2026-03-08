@@ -4,6 +4,9 @@ add_executable(openasr_benchmarks
     bench_buffer_engine.cpp
     bench_session.cpp
     bench_pipeline_e2e.cpp
+    bench_result_aggregator.cpp
+    bench_inference_pool.cpp
+    bench_object_pool.cpp
 )
 
 target_include_directories(openasr_benchmarks PRIVATE
