@@ -81,9 +81,12 @@ void BM_InferencePool_Submit(benchmark::State& state) {
     const auto audio = wss::bench::generate_silence(kSamplesPerJob);
 
     for (auto _ : state) {
-        // Create pool with enough capacity; 1 worker thread
+        // Pause while constructing pool — thread spawn (~200µs) dwarfs
+        // the queue push (~20-100ns) we want to measure.
+        state.PauseTiming();
         wss::transcription::InferencePool pool(backend, /*num_threads=*/1,
                                                 /*max_queue_size=*/num_jobs + 10);
+        state.ResumeTiming();
 
         for (size_t i = 0; i < num_jobs; ++i) {
             auto job = make_job("bench-" + std::to_string(i), audio);
@@ -92,8 +95,10 @@ void BM_InferencePool_Submit(benchmark::State& state) {
         benchmark::DoNotOptimize(pool.pending());
         benchmark::ClobberMemory();
 
-        // Shutdown drains remaining jobs
+        // Pause while shutting down — drain/join cost is not under test.
+        state.PauseTiming();
         pool.shutdown();
+        state.ResumeTiming();
     }
 
     state.SetItemsProcessed(
@@ -118,8 +123,12 @@ void BM_InferencePool_SubmitAndDrain(benchmark::State& state) {
     const auto audio = wss::bench::generate_silence(kSamplesPerJob);
 
     for (auto _ : state) {
+        // Pause while constructing pool — isolate round-trip measurement
+        // from thread spawn/join overhead.
+        state.PauseTiming();
         wss::transcription::InferencePool pool(backend, /*num_threads=*/2,
                                                 /*max_queue_size=*/num_jobs + 10);
+        state.ResumeTiming();
 
         std::latch done(static_cast<std::ptrdiff_t>(num_jobs));
 
@@ -134,7 +143,9 @@ void BM_InferencePool_SubmitAndDrain(benchmark::State& state) {
         benchmark::DoNotOptimize(pool.drain_complete());
         benchmark::ClobberMemory();
 
+        state.PauseTiming();
         pool.shutdown();
+        state.ResumeTiming();
     }
 
     state.SetItemsProcessed(
@@ -161,8 +172,13 @@ void BM_InferencePool_QueueContention(benchmark::State& state) {
 
     const auto thread_id = std::to_string(state.thread_index());
 
+    // Pre-allocate a job outside the timed loop to avoid copying the
+    // 1600-element audio vector (6.4KB) on every iteration, which would
+    // dilute the contention signal we want to measure.
+    auto job_template = make_job("contention-" + thread_id, audio);
+
     for (auto _ : state) {
-        auto job = make_job("contention-" + thread_id, audio);
+        auto job = job_template;  // cheap copy of pre-built job
         pool->submit(std::move(job));
         benchmark::ClobberMemory();
     }

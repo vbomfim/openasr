@@ -1,6 +1,6 @@
 /// @file bench_result_aggregator.cpp
 /// @brief Micro-benchmarks for ResultAggregator: add_window deduplication,
-///        full_transcript build cost, and latest_segments filtering.
+///        incremental transcript append cost, and latest_segments filtering.
 ///
 /// Measures the hot-path cost of segment accumulation and transcript generation
 /// across varying window sizes and segment counts.
@@ -36,8 +36,9 @@ constexpr int64_t kSegmentGapMs = 50;
         seg.start_ms = cursor;
         seg.end_ms = cursor + kSegmentDurationMs;
         seg.text = "word_" + std::to_string(i);
+        int64_t end_ms = seg.end_ms;
         segments.push_back(std::move(seg));
-        cursor = seg.end_ms + kSegmentGapMs;
+        cursor = end_ms + kSegmentGapMs;
     }
     return segments;
 }
@@ -94,11 +95,13 @@ BENCHMARK(BM_ResultAggregator_AddWindow)
     ->Arg(50);
 
 // ---------------------------------------------------------------------------
-// BM_ResultAggregator_FullTranscript — measure full_transcript() build cost.
-// Parameters: {10, 100, 500} accumulated segments.
-// Pre-populates the aggregator, then measures transcript string construction.
+// BM_ResultAggregator_IncrementalTranscript — measure incremental append cost.
+// Parameters: {10, 100, 500} accumulated segments (setup-only).
+// The internal cache makes full_transcript() an O(1) append after each
+// add_window(), so per-iteration cost is dominated by the ~6-byte append
+// ("extra" + space), not a full rebuild of the transcript string.
 // ---------------------------------------------------------------------------
-void BM_ResultAggregator_FullTranscript(benchmark::State& state) {
+void BM_ResultAggregator_IncrementalTranscript(benchmark::State& state) {
     const auto total_segments = static_cast<size_t>(state.range(0));
 
     // Pre-populate aggregator with the target number of segments.
@@ -107,6 +110,10 @@ void BM_ResultAggregator_FullTranscript(benchmark::State& state) {
     auto segments = make_segments(total_segments);
     int64_t window_end = segments.back().end_ms;
     aggregator.add_window(segments, window_end);
+
+    // The incremental append per iteration is the "extra" text plus a
+    // space separator — this is what we actually measure.
+    constexpr int64_t kIncrementalAppendBytes = 6; // " extra"
 
     for (auto _ : state) {
         // Force transcript rebuild by adding a trivial segment
@@ -124,12 +131,13 @@ void BM_ResultAggregator_FullTranscript(benchmark::State& state) {
         window_end = extra.end_ms + kSegmentGapMs;
     }
 
+    // Report the per-iteration incremental append size, not the total
+    // transcript length (which grows across iterations).
     state.SetBytesProcessed(
-        static_cast<int64_t>(state.iterations())
-        * static_cast<int64_t>(aggregator.full_transcript().size()));
+        static_cast<int64_t>(state.iterations()) * kIncrementalAppendBytes);
 }
 
-BENCHMARK(BM_ResultAggregator_FullTranscript)
+BENCHMARK(BM_ResultAggregator_IncrementalTranscript)
     ->Arg(10)
     ->Arg(100)
     ->Arg(500);
