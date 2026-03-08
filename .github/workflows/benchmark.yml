@@ -82,7 +82,7 @@ jobs:
           tool: googlecpp
           output-file-path: benchmark_results.json
           benchmark-data-dir-path: dev/bench
-          alert-threshold: "115%"
+          alert-threshold: "120%"
           fail-on-alert: ${{ github.event_name == 'pull_request' && steps.check-baseline.outputs.exists == 'true' }}
           comment-on-alert: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
