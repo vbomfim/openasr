@@ -55,11 +55,26 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name == 'push' || inputs.push }}
           tags: |
-            ghcr.io/${{ env.IMAGE_NAME }}:latest
             ghcr.io/${{ env.IMAGE_NAME }}:slim
             ghcr.io/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ghcr.io/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+          format: spdx-json
+          artifact-name: sbom-slim.spdx.json
 
   build-slim-cuda:
     name: Build slim CUDA image (no model)
@@ -98,11 +113,26 @@ jobs:
           platforms: linux/amd64
           push: ${{ github.event_name == 'push' || inputs.push }}
           tags: |
-            ghcr.io/${{ env.IMAGE_NAME }}:latest-cuda
             ghcr.io/${{ env.IMAGE_NAME }}:slim-cuda
             ghcr.io/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}-cuda
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ghcr.io/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}-cuda
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}-cuda
+          format: spdx-json
+          artifact-name: sbom-slim-cuda.spdx.json
 
   build-with-model:
     name: Build ${{ matrix.model }} image
