@@ -40,7 +40,7 @@ spec:
     spec:
       initContainers:
         - name: model-downloader
-          image: curlimages/curl:latest
+          image: curlimages/curl:8.11.1
           command:
             - sh
             - -c
