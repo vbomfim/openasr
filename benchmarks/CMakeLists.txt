@@ -2,6 +2,8 @@ add_executable(openasr_benchmarks
     bench_ring_buffer.cpp
     bench_audio_pipeline.cpp
     bench_buffer_engine.cpp
+    bench_session.cpp
+    bench_pipeline_e2e.cpp
 )
 
 target_include_directories(openasr_benchmarks PRIVATE
