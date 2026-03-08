@@ -1,0 +1,12 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: whisperx
+  labels:
+    app.kubernetes.io/part-of: whisperx-streaming-server
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress

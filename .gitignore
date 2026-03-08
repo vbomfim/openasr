@@ -30,6 +30,7 @@ models/
 *.env
 .env*
 secrets/
+k8s/local/secrets.yaml
 
 # Third-party build artifacts
 third_party/whisper.cpp/build/
