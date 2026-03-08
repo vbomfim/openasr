@@ -19,17 +19,11 @@ data:
   WSS_BEAM_SIZE: "5"
   WSS_CONFIG_PATH: "/dev/null"
 ---
+# Secret: whisperx-server-secrets
+# Create manually: kubectl apply -f k8s/local/secrets.yaml
+# See k8s/local/secrets.yaml.example for template
+---
 apiVersion: apps/v1
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: whisperx-server-secrets
-  namespace: whisperx
-type: Opaque
-stringData:
-  WSS_API_KEY: "CHANGE-ME-IN-PRODUCTION"
----
 kind: Deployment
 metadata:
   name: whisperx-server
@@ -75,6 +69,7 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+      automountServiceAccountToken: false
       containers:
         - name: whisperx-server
           image: whisperx-server:v0.2.1
@@ -83,9 +78,10 @@ spec:
             - containerPort: 9090
           envFrom:
             - configMapRef:
+                name: whisperx-server-config
             - secretRef:
                 name: whisperx-server-secrets
-                name: whisperx-server-config
+                optional: true
           env:
             - name: WHISPER_MODEL_PATH
               value: /models/ggml-small.en.bin

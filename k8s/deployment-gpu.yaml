@@ -21,6 +21,7 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+      automountServiceAccountToken: false
       containers:
         - name: whisperx-server
           image: ghcr.io/vbomfim/openasr:large-v3-cuda
