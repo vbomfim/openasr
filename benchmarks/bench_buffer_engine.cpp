@@ -64,20 +64,26 @@ void BM_BufferEngine_ExtractFixedWindow(benchmark::State& state) {
     const auto fill = wss::bench::generate_sine(kRingCapacity);
     ring.write(fill.data(), fill.size());
 
-    // Pre-allocate stride data for re-filling between iterations
+    // Pre-allocate stride data for re-filling between window extractions
+    // (simulates realistic streaming: new audio arrives between each window)
     const auto stride_data = wss::bench::generate_sine(stride_samples);
 
     for (auto _ : state) {
         if (!engine.window_ready(ring)) {
-            // Re-fill ring buffer and reset engine to keep benchmark going
+            // Exhausted ring — reset and refill (excluded from measurement)
+            state.PauseTiming();
             ring.reset();
             ring.write(fill.data(), fill.size());
             engine.reset();
+            state.ResumeTiming();
         }
         auto result = engine.extract_window(ring);
         benchmark::DoNotOptimize(result.samples);
         benchmark::DoNotOptimize(result.count);
         benchmark::ClobberMemory();
+
+        // Simulate streaming: write one stride of new audio between extractions
+        ring.write(stride_data.data(), stride_data.size());
     }
 
     state.SetBytesProcessed(

@@ -31,8 +31,9 @@ namespace {
     std::vector<uint8_t> bytes(num_samples * 2);
     for (size_t i = 0; i < num_samples; ++i) {
         auto s = static_cast<int16_t>(floats[i] * 32767.0f);
-        bytes[i * 2]     = static_cast<uint8_t>(s & 0xFF);
-        bytes[i * 2 + 1] = static_cast<uint8_t>((s >> 8) & 0xFF);
+        auto us = static_cast<uint16_t>(s);
+        bytes[i * 2]     = static_cast<uint8_t>(us & 0xFF);
+        bytes[i * 2 + 1] = static_cast<uint8_t>((us >> 8) & 0xFF);
     }
     return bytes;
 }
