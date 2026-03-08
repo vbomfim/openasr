@@ -98,10 +98,10 @@ BENCHMARK(BM_BufferEngine_ExtractFixedWindow)
     ->Arg(20000);
 
 // ---------------------------------------------------------------------------
-// BM_BufferEngine_ExtractVADWindow — VAD-adaptive window extraction.
-// Simulates speech → silence → extract cycle.
+// BM_BufferEngine_VADFullCycle — end-to-end VAD-adaptive window extraction.
+// Simulates speech → silence → extract cycle (measures full scenario cost).
 // ---------------------------------------------------------------------------
-void BM_BufferEngine_ExtractVADWindow(benchmark::State& state) {
+void BM_BufferEngine_VADFullCycle(benchmark::State& state) {
     constexpr int32_t kWindowMs = 20000;
     constexpr int32_t kOverlapMs = 2000;
 
@@ -138,7 +138,7 @@ void BM_BufferEngine_ExtractVADWindow(benchmark::State& state) {
         * static_cast<int64_t>(sizeof(wss::SampleFloat)));
 }
 
-BENCHMARK(BM_BufferEngine_ExtractVADWindow);
+BENCHMARK(BM_BufferEngine_VADFullCycle);
 
 // ---------------------------------------------------------------------------
 // BM_VAD_Process — measure VAD::process() on audio chunks of varying size.
@@ -158,6 +158,7 @@ void BM_VAD_Process(benchmark::State& state) {
         benchmark::DoNotOptimize(result.is_speech);
         benchmark::DoNotOptimize(result.end_of_speech);
         benchmark::DoNotOptimize(result.speech_samples);
+        benchmark::ClobberMemory();
     }
 
     state.SetBytesProcessed(
@@ -191,6 +192,7 @@ void BM_VAD_IsSpeechFrame(benchmark::State& state) {
         vad.reset();
         auto result = vad.process(frame.data(), frame.size());
         benchmark::DoNotOptimize(result.is_speech);
+        benchmark::ClobberMemory();
     }
 
     state.SetBytesProcessed(
