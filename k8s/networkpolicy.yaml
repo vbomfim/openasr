@@ -9,7 +9,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: whisperx-server
+      app.kubernetes.io/part-of: whisperx-streaming-server
   policyTypes:
     - Ingress
     - Egress
