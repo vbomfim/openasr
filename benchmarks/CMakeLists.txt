@@ -28,6 +28,10 @@ get_target_property(_prom_inc prometheus-cpp::core INTERFACE_INCLUDE_DIRECTORIES
 if(_prom_inc)
     target_include_directories(openasr_benchmarks SYSTEM PRIVATE ${_prom_inc})
 endif()
+get_target_property(_bench_inc benchmark::benchmark INTERFACE_INCLUDE_DIRECTORIES)
+if(_bench_inc)
+    target_include_directories(openasr_benchmarks SYSTEM PRIVATE ${_bench_inc})
+endif()
 
 # Apply hardened compiler flags (same as main target)
 target_compile_options(openasr_benchmarks PRIVATE ${WSS_COMPILE_OPTIONS})

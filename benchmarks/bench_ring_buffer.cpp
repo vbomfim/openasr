@@ -62,6 +62,7 @@ void BM_RingBuffer_ExtractWindow(benchmark::State& state) {
         auto extracted = rb.extract_window(dest.data(), dest.size());
         benchmark::DoNotOptimize(extracted);
         benchmark::DoNotOptimize(dest.data());
+        benchmark::ClobberMemory();
     }
 
     state.SetBytesProcessed(
@@ -99,13 +100,12 @@ void BM_RingBuffer_WriteWrapAround(benchmark::State& state) {
 
     state.SetBytesProcessed(
         static_cast<int64_t>(state.iterations())
-        * static_cast<int64_t>(chunk_size)
+        * static_cast<int64_t>(std::min(chunk_size, kWrapCapacity))
         * static_cast<int64_t>(sizeof(wss::SampleFloat)));
 }
 
 BENCHMARK(BM_RingBuffer_WriteWrapAround)
-    ->Arg(16000)
-    ->Arg(48000);
+    ->Arg(16000);
 
 // ---------------------------------------------------------------------------
 // BM_RingBuffer_FillRatio — trivial operation baseline.
