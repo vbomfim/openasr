@@ -21,10 +21,13 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
       automountServiceAccountToken: false
       containers:
         - name: whisperx-server
-          image: whisperx-server:v0.2.1
+          image: ghcr.io/vbomfim/openasr:v0.2.1
           ports:
             - containerPort: 9090
               protocol: TCP
@@ -45,6 +48,12 @@ spec:
             limits:
               cpu: "8"
               memory: 16Gi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            failureThreshold: 30
+            periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health

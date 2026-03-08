@@ -21,10 +21,13 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
       automountServiceAccountToken: false
       containers:
         - name: whisperx-server
-          image: ghcr.io/vbomfim/openasr:large-v3-cuda
+          image: ghcr.io/vbomfim/openasr:v0.2.1-cuda
           ports:
             - containerPort: 9090
               protocol: TCP
@@ -47,6 +50,12 @@ spec:
               cpu: "8"
               memory: 16Gi
               nvidia.com/gpu: 1
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            failureThreshold: 60
+            periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health
