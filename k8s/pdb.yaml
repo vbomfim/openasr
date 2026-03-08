@@ -1,0 +1,27 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: whisperx-server-pdb
+  namespace: whisperx
+  labels:
+    app.kubernetes.io/name: whisperx-server
+    app.kubernetes.io/part-of: whisperx-streaming-server
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: whisperx-server
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: whisperx-server-gpu-pdb
+  namespace: whisperx
+  labels:
+    app.kubernetes.io/name: whisperx-server-gpu
+    app.kubernetes.io/part-of: whisperx-streaming-server
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: whisperx-server-gpu
