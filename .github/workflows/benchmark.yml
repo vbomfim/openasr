@@ -1,0 +1,72 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  benchmark:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            build-essential cmake pkg-config \
+            libopus-dev libsamplerate0-dev zlib1g-dev
+
+      - name: Configure
+        run: |
+          mkdir build && cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_BENCHMARKS=ON \
+            -DBUILD_TESTS=OFF \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DWHISPER_BUILD_TESTS=OFF \
+            -DWHISPER_BUILD_EXAMPLES=OFF \
+            -DGGML_METAL=OFF
+
+      - name: Build benchmarks
+        run: cmake --build build --target openasr_benchmarks -j$(nproc)
+
+      - name: Run benchmarks
+        run: |
+          ./build/benchmarks/openasr_benchmarks \
+            --benchmark_format=json \
+            --benchmark_out=benchmark_results.json \
+            --benchmark_min_time=0.5s \
+            --benchmark_repetitions=3
+
+      - name: Check for benchmark baseline
+        id: check-baseline
+        run: |
+          if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "No benchmark baseline yet (first run — comparison skipped)"
+          fi
+
+      - name: Store benchmark results
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: googlecpp
+          output-file-path: benchmark_results.json
+          benchmark-data-dir-path: dev/bench
+          alert-threshold: "115%"
+          fail-on-alert: ${{ github.event_name == 'pull_request' && steps.check-baseline.outputs.exists == 'true' }}
+          comment-on-alert: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          skip-fetch-gh-pages: ${{ steps.check-baseline.outputs.exists == 'false' }}
