@@ -6,6 +6,7 @@
 
 #include <benchmark/benchmark.h>
 #include "audio/audio_ring_buffer.hpp"
+#include "common.hpp"
 #include "helpers/synthetic_audio.hpp"
 
 #include <cstddef>
@@ -13,8 +14,9 @@
 
 namespace {
 
-// Production ring buffer capacity: 16 kHz × 30 s
-constexpr size_t kProductionCapacity = 16000 * 30;  // 480 000 samples
+// Production ring buffer capacity: kWhisperSampleRate × 30 s
+constexpr size_t kProductionCapacity =
+    static_cast<size_t>(wss::kWhisperSampleRate) * 30;  // 480 000 samples
 
 // ---------------------------------------------------------------------------
 // BM_RingBuffer_Write — measure raw write throughput at various chunk sizes.
@@ -84,7 +86,8 @@ BENCHMARK(BM_RingBuffer_ExtractWindow)
 void BM_RingBuffer_WriteWrapAround(benchmark::State& state) {
     const auto chunk_size = static_cast<size_t>(state.range(0));
     // Use kWhisperSampleRate (16 000) as capacity to force frequent wraps
-    constexpr size_t kWrapCapacity = 16000;
+    constexpr size_t kWrapCapacity =
+        static_cast<size_t>(wss::kWhisperSampleRate);
     wss::audio::AudioRingBuffer rb(kWrapCapacity);
     const auto audio = wss::bench::generate_sine(chunk_size);
 
