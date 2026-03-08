@@ -15,8 +15,12 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: whisperx-server
+        app.kubernetes.io/part-of: whisperx-streaming-server
     spec:
       terminationGracePeriodSeconds: 120
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: whisperx-server
           image: whisperx-server:v0.2.1

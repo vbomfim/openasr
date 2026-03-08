@@ -15,8 +15,12 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: whisperx-server-gpu
+        app.kubernetes.io/part-of: whisperx-streaming-server
     spec:
       terminationGracePeriodSeconds: 120
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: whisperx-server
           image: ghcr.io/vbomfim/openasr:large-v3-cuda

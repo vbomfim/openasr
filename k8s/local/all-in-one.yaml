@@ -61,10 +61,20 @@ spec:
               echo "Verifying SHA-256 checksum..."
               echo "$CHECKSUM  $MODEL" | sha256sum -c - || { echo "CHECKSUM FAILED — removing corrupt model"; rm -f "$MODEL"; exit 1; }
               echo "Model verified: $(ls -lh $MODEL)"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
           volumeMounts:
             - name: model-vol
               mountPath: /models
       terminationGracePeriodSeconds: 120
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: whisperx-server
           image: whisperx-server:v0.2.1
@@ -108,6 +118,7 @@ spec:
             runAsNonRoot: true
             runAsUser: 1000
             readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
             capabilities:
               drop:
                 - ALL
