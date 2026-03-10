@@ -48,7 +48,7 @@ jobs:
           fi
 
       - name: Build and push slim image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/Dockerfile
@@ -106,7 +106,7 @@ jobs:
           fi
 
       - name: Build and push slim CUDA image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/Dockerfile.cuda
@@ -196,7 +196,7 @@ jobs:
           echo "ENV WHISPER_MODEL_PATH=/models/${{ matrix.file }}" >> Dockerfile.with-model
 
       - name: Build and push model image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.with-model
@@ -271,7 +271,7 @@ jobs:
           echo "ENV WHISPER_MODEL_PATH=/models/${{ matrix.file }}" >> Dockerfile.with-model-cuda
 
       - name: Build and push CUDA model image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.with-model-cuda
